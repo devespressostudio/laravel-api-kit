@@ -1,51 +1,30 @@
 <?php
 
-namespace Devespresso\DataFiltering\Services\Authorisation;
+namespace Devespresso\LaravelApiKit\Services\Authorisation;
 
-use Devespresso\DataFiltering\Exceptions\AuthorisationException;
-use Illuminate\Foundation\Auth\User;
+use Devespresso\LaravelApiKit\Exceptions\AuthorisationException;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Hash;
 
 class BaseAuthorisationService
 {
     /**
-     * Gets the value as boolean
-     * If this is set to true, the service will not throw the exception
-     *
-     * @var bool
+     * When true, errors are collected into $errors instead of throwing exceptions.
+     * Call skipExceptions() to enable this mode.
      */
-    protected $skipExceptions = false;
+    protected bool $skipExceptions = false;
+
+    protected array $errors = [];
+
+    protected ?Authenticatable $user = null;
+
+    protected array $properties = [];
+
+    /** The key within $properties treated as the primary subject of authorisation checks. */
+    protected ?string $mainProperty = null;
 
     /**
-     * All Errors
-     *
-     * @var array
-     */
-    public $errors = [];
-
-    /**
-     * User
-     *
-     * @var User
-     */
-    protected $user = null;
-
-    /**
-     * Array of properties
-     *
-     * @var array
-     */
-    protected $properties = [];
-
-    /**
-     * Sets current property
-     *
-     * @var string
-     */
-    protected $mainProperty = null;
-
-    /**
-     * Gets a property
+     * Gets a property by key.
      */
     public function getProperty(string $property): mixed
     {
@@ -53,15 +32,21 @@ class BaseAuthorisationService
     }
 
     /**
-     * Gets current property
+     * Gets the main property value.
+     *
+     * @throws \RuntimeException if mainProperty has not been defined.
      */
     public function getMainProperty(): mixed
     {
+        if (! $this->mainProperty || ! array_key_exists($this->mainProperty, $this->properties)) {
+            throw new \RuntimeException('Main property ['.($this->mainProperty ?? 'null').'] has not been set on ['.static::class.'].');
+        }
+
         return $this->properties[$this->mainProperty];
     }
 
     /**
-     * Sets current property
+     * Sets the value of the main property.
      */
     public function setMainProperty(mixed $property): self
     {
@@ -71,7 +56,7 @@ class BaseAuthorisationService
     }
 
     /**
-     * Properties
+     * Replaces all properties.
      */
     public function setProperties(array $properties = []): self
     {
@@ -81,9 +66,9 @@ class BaseAuthorisationService
     }
 
     /**
-     * Sets the model to authenticate
+     * Sets the user to authorise against.
      */
-    public function setUser(?User $user): self
+    public function setUser(?Authenticatable $user): self
     {
         $this->user = $user;
 
@@ -91,7 +76,7 @@ class BaseAuthorisationService
     }
 
     /**
-     * Gets the results as a boolean
+     * Switches to error-collection mode — errors are added to $errors instead of throwing.
      */
     public function skipExceptions(): self
     {
@@ -101,29 +86,58 @@ class BaseAuthorisationService
     }
 
     /**
-     * Check that if model belongs to user owner
+     * Asserts that the given property (or the main property) belongs to the provided owner.
+     *
+     * @param  Authenticatable|object  $owner       The owner to check against.
+     * @param  string                  $foreignKey  The foreign key on the model (e.g. 'user_id', 'team_id').
+     * @param  string                  $ownerKey    The key to read from the owner (e.g. 'id').
+     * @param  string|null             $property    A specific property to check; uses the main property if null.
      */
-    public function doesItBelongToUser(?string $property = null): self
-    {
-        $property = $property ? $this->getProperty($property) : $this->getMainProperty();
+    public function doesItBelongTo(
+        object $owner,
+        string $foreignKey = 'user_id',
+        string $ownerKey = 'id',
+        ?string $property = null
+    ): self {
+        $model = $property ? $this->getProperty($property) : $this->getMainProperty();
 
-        if (! $this->user) {
-            $this->error('Sorry user has not been set.');
-        }
+        $ownerId = $owner instanceof Authenticatable
+            ? $owner->getAuthIdentifier()
+            : $owner->{$ownerKey};
 
-        if (! $property?->user_id || $property?->user_id !== $this->user->id) {
-            $this->error('Item does not belong to this user.');
+        if (! $model?->{$foreignKey} || $model->{$foreignKey} !== $ownerId) {
+            $this->error('Item does not belong to the provided owner.');
         }
 
         return $this;
     }
 
     /**
-     * Verifies that the authenticatable model has the correct password
+     * Convenience wrapper — asserts the property belongs to the current user via user_id.
+     */
+    public function doesItBelongToUser(?string $property = null): self
+    {
+        if (! $this->user) {
+            $this->error('Sorry, user has not been set.');
+
+            return $this;
+        }
+
+        return $this->doesItBelongTo($this->user, 'user_id', 'id', $property);
+    }
+
+    /**
+     * Verifies the given password against the current user's stored password.
      */
     public function passwordVerification(?string $password): self
     {
-        if (! $password || ! $this->user || ! Hash::check($password, $this->user->password)) {
+        if (! $password) {
+            $this->error('No password was provided.');
+
+            return $this;
+        }
+
+        if (! $this->user || ! Hash::check($password, $this->user->getAuthPassword())) {
             $this->error('The provided credentials are incorrect.');
         }
 
@@ -131,7 +145,7 @@ class BaseAuthorisationService
     }
 
     /**
-     * Requires a logged in user
+     * Asserts that a user is currently authenticated via the auth guard.
      */
     public function requireUser(): self
     {
@@ -143,7 +157,7 @@ class BaseAuthorisationService
     }
 
     /**
-     * Gets all the current errors
+     * Returns all collected errors.
      */
     public function getErrors(): array
     {
@@ -151,16 +165,15 @@ class BaseAuthorisationService
     }
 
     /**
-     * Checks the validation has passed
+     * Returns true if no errors have been collected.
      */
     public function isValid(): bool
     {
-        return (bool) count($this->errors);
+        return count($this->errors) === 0;
     }
 
     /**
-     * Throws the exception or adds the error to the bag
-     *
+     * Either throws an AuthorisationException or collects the error, depending on skipExceptions mode.
      *
      * @throws AuthorisationException
      */

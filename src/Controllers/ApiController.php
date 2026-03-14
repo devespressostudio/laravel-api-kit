@@ -1,9 +1,9 @@
 <?php
 
-namespace Devespresso\DataFiltering\Controllers;
+namespace Devespresso\LaravelApiKit\Controllers;
 
-use Devespresso\DataFiltering\Repositories\BaseRepository;
-use Devespresso\DataFiltering\Transformers\BaseTransformer;
+use Devespresso\LaravelApiKit\Repositories\BaseRepository;
+use Devespresso\LaravelApiKit\Transformers\BaseTransformer;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
@@ -11,65 +11,40 @@ use Illuminate\Support\Str;
 
 class ApiController
 {
-    /**
-     * Status
-     *
-     * @var string
-     */
-    protected $status = 'success';
+    protected string $status = 'success';
 
-    /**
-     * Status Code
-     *
-     * @var int
-     */
-    protected $code = 200;
+    protected int $code = 200;
 
-    /**
-     * Data
-     *
-     * @var array
-     */
-    protected $data = [];
+    protected array $data = [];
 
-    /**
-     * Pagination
-     *
-     * @var array
-     */
-    protected $pagination = [];
+    protected array $pagination = [];
 
-    /**
-     * Custom message for the status
-     *
-     * @var string
-     */
-    protected $statusMessage = '';
+    protected string $statusMessage = '';
 
-    /**
-     * Transformer
-     *
-     * @var string
-     */
-    protected $transformer = null;
+    /** Class string of the transformer to use. Resolved automatically if not set. */
+    protected ?string $transformer = null;
 
-    /**
-     * Repository
-     *
-     * @var BaseRepository
-     */
-    protected $repository = null;
+    /** Class string of the repository to use. Resolved automatically if not set. */
+    protected ?string $repository = null;
 
-    /**
-     * Guesses the repository
-     */
+    /** Set to false to disable auto-resolution of the repository. */
+    protected bool $autoResolveRepository = true;
+
+    /** Set to false to disable auto-resolution of the transformer. */
+    protected bool $autoResolveTransformer = true;
+
+    protected ?BaseRepository $resolvedRepository = null;
+
     public function __construct()
     {
-        $this->repository = $this->guessRepository();
+        if ($this->autoResolveRepository) {
+            $this->resolvedRepository = $this->resolveRepository();
+        }
     }
 
     /**
-     * Sets http code
+     * Sets the HTTP status code and optionally a custom message.
+     * Automatically sets status to "error" for 4xx/5xx codes.
      */
     protected function setCode(int $code, ?string $message = null): self
     {
@@ -79,13 +54,13 @@ class ApiController
             $this->status = 'error';
         }
 
-        $this->statusMessage = $message;
+        $this->statusMessage = $message ?? '';
 
         return $this;
     }
 
     /**
-     * Sets the transformer
+     * Overrides the auto-resolved transformer with a specific class.
      */
     protected function setTransformer(string $transformer): self
     {
@@ -95,23 +70,21 @@ class ApiController
     }
 
     /**
-     * Sets the main data
-     *
-     * @param  Collection|Model  $data
-     * @param  string  $method
+     * Transforms and sets the response data.
+     * Automatically extracts pagination metadata from LengthAwarePaginator instances.
      */
     protected function setData(
         $data,
         ?string $wrapper = null,
         ?string $format = null
     ): self {
-        $transformer = $this->guessTransformer();
-
-        if (! $wrapper) {
-            $wrapper = $transformer->wrapper;
+        if (! $this->autoResolveTransformer) {
+            throw new \RuntimeException('Cannot call setData() when autoResolveTransformer is disabled on ['.static::class.'].');
         }
 
-        $this->data[$wrapper] = $transformer->transformData($data, $format);
+        $transformer = $this->resolveTransformer();
+
+        $this->data[$wrapper ?? $transformer->wrapper] = $transformer->transformData($data, $format);
 
         if ($data instanceof LengthAwarePaginator) {
             $this->pagination['pagination'] = $this->getPagination($data);
@@ -121,43 +94,39 @@ class ApiController
     }
 
     /**
-     * Sends the response
+     * Builds and returns the JSON response.
+     *
+     * @param  array  $response  Additional data to merge into the response payload.
+     * @param  bool   $override  When true, later keys override earlier ones (array_merge).
+     *                           When false, conflicting keys are merged recursively (array_merge_recursive).
      */
-    protected function respond(
-        ?array $response = [],
-        bool $overide = true
-    ): JsonResponse {
-        $method = $overide ? 'array_merge' : 'array_merge_recursive';
+    protected function respond(array $response = [], bool $override = true): JsonResponse
+    {
+        $payload = [
+            'code' => $this->code,
+            'status' => $this->status,
+            'message' => $this->getStatusMessage(),
+        ];
 
-        return response()->json(
-            $method(
-                [
-                    'code' => $this->code,
-                    'status' => $this->status,
-                    'message' => $this->getStatusMessage(),
-                ],
-                $this->data,
-                $response,
-                $this->pagination
-            ),
-            $this->code
-        );
+        if ($override) {
+            $merged = array_merge($payload, $this->data, $response, $this->pagination);
+        } else {
+            $merged = array_merge_recursive($payload, $this->data, $response, $this->pagination);
+        }
+
+        return response()->json($merged, $this->code);
     }
 
     /**
-     * Gets the status message
+     * Returns the status message, falling back to the standard HTTP status text.
      */
     protected function getStatusMessage(): string
     {
-        if ($this->statusMessage) {
-            return $this->statusMessage;
-        }
-
-        return Response::$statusTexts[$this->code];
+        return $this->statusMessage ?: Response::$statusTexts[$this->code];
     }
 
     /**
-     * Gets the pagination
+     * Extracts pagination metadata from a paginator instance.
      */
     protected function getPagination(LengthAwarePaginator $data): array
     {
@@ -174,34 +143,42 @@ class ApiController
     }
 
     /**
-     * Resolves the transformer
+     * Resolves the transformer instance.
+     * Uses $transformer class string if set, otherwise infers from the controller name.
+     * Example: UserController → {transformers_path}\UserTransformer
+     *
+     * @throws \RuntimeException if the resolved class does not exist.
      */
-    protected function guessTransformer(): BaseTransformer
+    protected function resolveTransformer(): BaseTransformer
     {
-        if ($this->transformer) {
-            return resolve($this->transformer);
-        }
-
-        $transformer = (string) Str::of(class_basename($this))
+        $class = $this->transformer ?? (string) Str::of(class_basename($this))
             ->prepend(config('devespressoApi.paths.transformers'))
             ->replace('Controller', 'Transformer');
 
-        return resolve($transformer);
+        if (! class_exists($class)) {
+            throw new \RuntimeException("Transformer class [{$class}] could not be found for [".static::class.'].');
+        }
+
+        return resolve($class);
     }
 
     /**
-     * Repository
+     * Resolves the repository instance.
+     * Uses $repository class string if set, otherwise infers from the controller name.
+     * Example: UserController → {repositories_path}\UserRepository
+     *
+     * @throws \RuntimeException if the resolved class does not exist.
      */
-    protected function guessRepository(): BaseRepository
+    protected function resolveRepository(): BaseRepository
     {
-        if ($this->repository) {
-            return resolve($this->repository);
-        }
-
-        $repository = (string) Str::of(class_basename($this))
+        $class = $this->repository ?? (string) Str::of(class_basename($this))
             ->prepend(config('devespressoApi.paths.repositories'))
             ->replace('Controller', 'Repository');
 
-        return resolve($repository);
+        if (! class_exists($class)) {
+            throw new \RuntimeException("Repository class [{$class}] could not be found for [".static::class.'].');
+        }
+
+        return resolve($class);
     }
 }

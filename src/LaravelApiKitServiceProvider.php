@@ -1,10 +1,10 @@
 <?php
 
-namespace Devespresso\DataFiltering;
+namespace Devespresso\LaravelApiKit;
 
 use Illuminate\Support\ServiceProvider;
 
-class DataFilteringServiceProvider extends ServiceProvider
+class LaravelApiKitServiceProvider extends ServiceProvider
 {
     /**
      * Bootstrap any package services.

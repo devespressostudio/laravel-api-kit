@@ -1,74 +1,51 @@
 <?php
 
-namespace Devespresso\DataFiltering\Repositories;
+namespace Devespresso\LaravelApiKit\Repositories;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Str;
 
 abstract class BaseRepository
 {
-    /**
-     * Model
-     *
-     * @var Model
-     */
-    protected $model;
+    protected Model $model;
 
-    /**
-     * Sets the model
-     */
     public function __construct()
     {
-        $this->model = $this->guessModel();
+        $this->model = $this->resolveModel();
     }
 
     /**
-     * Index
-     *
-     * @param  Builder  $query
-     * @return Paginate
+     * Returns a paginated/filtered list of records.
      */
     public function index(
         array $data,
-        ?User $user = null,
+        ?Authenticatable $user = null,
         $query = null,
         array $extras = []
-    ) {
-        return $this->model->filter(
-            $data,
-            $user,
-            $query,
-            $extras
-        );
+    ): mixed {
+        return $this->model->filter($data, $user, $query, $extras);
     }
 
     /**
-     * Gets a single item
-     *
-     * @param  mix  $id
-     * @return Model
+     * Finds a single record by ID.
      */
-    public function get($id)
+    public function get(int|string $id): ?Model
     {
         return $this->model->find($id);
     }
 
     /**
-     * Gets run before the model is created
-     *
-     * @return void
+     * Called before a model is created. Modify $attributes by reference to alter what gets persisted.
      */
-    protected function beforeCreate(array &$attributes = [])
+    protected function beforeCreate(array &$attributes = []): void
     {
     }
 
     /**
-     * Creates a record
-     *
-     * @return Model
+     * Creates a new record.
      */
-    public function create(array $attributes)
+    public function create(array $attributes): Model
     {
         $this->beforeCreate($attributes);
 
@@ -80,34 +57,23 @@ abstract class BaseRepository
     }
 
     /**
-     * After created
-     *
-     * @return void
+     * Called after a model is created.
      */
-    protected function afterCreated(
-        Model $model,
-        array $attributes
-    ) {
+    protected function afterCreated(Model $model, array $attributes): void
+    {
     }
 
     /**
-     * Runs before model gets updated
-     *
-     * @return void
+     * Called before a model is updated. Modify $attributes by reference to alter what gets persisted.
      */
-    protected function beforeUpdate(
-        ?Model $model = null,
-        array &$attributes = []
-    ) {
+    protected function beforeUpdate(?Model $model = null, array &$attributes = []): void
+    {
     }
 
     /**
-     * Updates a model
-     *
-     * @param  mix  $id
-     * @return Model
+     * Updates a record. Accepts a Model instance or a raw ID.
      */
-    public function update($model, array $attributes)
+    public function update(Model|int|string $model, array $attributes): Model
     {
         if (! $model instanceof Model) {
             $model = $this->get($model);
@@ -123,44 +89,47 @@ abstract class BaseRepository
     }
 
     /**
-     * Runs after the model is updated
-     *
-     * @return void
+     * Called after a model is updated.
      */
-    protected function afterUpdated(
-        Model $model,
-        array $attributes
-    ) {
+    protected function afterUpdated(Model $model, array $attributes): void
+    {
     }
 
     /**
-     * Deletes a record
-     *
-     * @param  mix  $id
-     * @return bool
+     * Deletes a record. Accepts a Model instance or a raw ID.
      */
-    public function delete(mixed $id)
+    public function delete(Model|int|string $model): bool
     {
-        if (! $id instanceof Model) {
-            $id = $this->get($id);
+        if (! $model instanceof Model) {
+            $model = $this->get($model);
         }
 
-        return $id->delete();
+        return $model->delete();
     }
 
     /**
-     * Guesses the model
+     * Resolves the Eloquent model for this repository.
+     *
+     * If $model is pre-set on the subclass as a class string, that class is instantiated.
+     * Otherwise, the model is inferred from the repository class name by stripping "Repository"
+     * and prepending the configured models namespace (devespressoApi.paths.models).
+     *
+     * Example: UserRepository → {models_path}\User
+     *
+     * @throws \RuntimeException if the resolved class does not exist.
      */
-    protected function guessModel(): Model
+    protected function resolveModel(): Model
     {
-        if ($this->model) {
-            return new $this->model();
+        $class = isset($this->model) && is_string($this->model)
+            ? $this->model
+            : (string) Str::of(class_basename($this))
+                ->prepend(config('devespressoApi.paths.models'))
+                ->replace('Repository', '');
+
+        if (! class_exists($class)) {
+            throw new \RuntimeException("Model class [{$class}] could not be found for [".static::class.'].');
         }
 
-        $model = (string) Str::of(class_basename($this))
-            ->prepend(config('devespressoApi.paths.models'))
-            ->replace('Repository', '');
-
-        return new $model();
+        return new $class();
     }
 }

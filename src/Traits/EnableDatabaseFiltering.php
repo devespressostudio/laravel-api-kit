@@ -1,12 +1,10 @@
 <?php
 
-namespace Devespresso\DataFiltering\Traits;
+namespace Devespresso\LaravelApiKit\Traits;
 
-use Devespresso\DataFiltering\Services\Filters\BaseFilterService;
-use function Laravel\Prompts\search;
+use Devespresso\LaravelApiKit\Services\Filters\BaseFilterService;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
-
-use Illuminate\Foundation\Auth\User;
 
 trait EnableDatabaseFiltering
 {
@@ -18,7 +16,7 @@ trait EnableDatabaseFiltering
      */
     public function filter(
         array $data,
-        ?User $user,
+        ?Authenticatable $user,
         $query = null,
         array $extras = []
     ) {
@@ -50,11 +48,11 @@ trait EnableDatabaseFiltering
         $columns = $this->searchableColumns ?? [];
         $terms = explode(' ', $search);
         foreach ($terms as $term) {
-            foreach ($columns as $column) {
-                $builder->where(function ($query) use ($column, $term) {
+            $builder->where(function ($query) use ($columns, $term) {
+                foreach ($columns as $column) {
                     $query->orWhere($column, 'LIKE', '%' . $term . '%');
-                });
-            }
+                }
+            });
         }
 
         return $builder;

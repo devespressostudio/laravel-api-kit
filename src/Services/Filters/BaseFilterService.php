@@ -1,10 +1,11 @@
 <?php
 
-namespace Devespresso\DataFiltering\Services\Filters;
+namespace Devespresso\LaravelApiKit\Services\Filters;
 
-use Devespresso\DataFiltering\Transformers\BaseTransformer;
+use Devespresso\LaravelApiKit\Transformers\BaseTransformer;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Str;
 use ReflectionClass;
 
@@ -27,7 +28,7 @@ class BaseFilterService
     /**
      * User
      *
-     * @var User
+     * @var Authenticatable
      */
     protected $user = null;
 
@@ -80,7 +81,7 @@ class BaseFilterService
     /**
      * Sets the default sorting
      *
-     * @var string
+     * @var array
      */
     protected $defaultSortingColumn = ['id,desc'];
 
@@ -113,9 +114,12 @@ class BaseFilterService
     protected $runConditions = true;
 
     /**
-     * Sets the user
+     * Sets the authenticated user for this filter session.
+     *
+     * The user is used to determine access to admin-only filter methods.
+     * Pass null to represent an unauthenticated (guest) context.
      */
-    public function setUser(?User $user): self
+    public function setUser(?Authenticatable $user): self
     {
         $this->user = $user;
 
@@ -123,7 +127,11 @@ class BaseFilterService
     }
 
     /**
-     * Sets the data
+     * Sets the input data used to drive filtering.
+     *
+     * Keys in the array are mapped to filter methods on the subclass via camelCase
+     * conversion. For example, passing ['created_after' => '2024-01-01'] will call
+     * $this->createdAfter('2024-01-01') if that method exists and is not guarded.
      */
     public function setData(array $data = []): self
     {
@@ -133,9 +141,13 @@ class BaseFilterService
     }
 
     /**
-     * Sets the data
+     * Sets arbitrary extra context that filter methods can read via getExtraProperty().
      *
-     * @param  array  $data
+     * Use this to pass data that should influence filtering but does not come from
+     * user input — for example, a tenant ID or a parent resource ID resolved by a
+     * controller before invoking the filter service.
+     *
+     * @param  array  $extras
      */
     public function setExtras(array $extras = []): self
     {
@@ -145,7 +157,11 @@ class BaseFilterService
     }
 
     /**
-     * Sets the query
+     * Sets the Eloquent query builder that filters will be applied to.
+     *
+     * Only sets the query if one has not already been assigned, so calling this
+     * multiple times is safe. Internally, filter() initialises the query from the
+     * model, but you can supply a pre-scoped builder here when needed.
      *
      * @param  Builder  $query
      */
@@ -159,7 +175,10 @@ class BaseFilterService
     }
 
     /**
-     * Sets the model
+     * Sets the Eloquent model that the filter service operates on.
+     *
+     * The model is used to initialise the query builder in filter() and to derive
+     * the table name and per-page defaults. Must be set before calling filter().
      */
     public function setModel(Model $model): self
     {
@@ -169,14 +188,28 @@ class BaseFilterService
     }
 
     /**
-     * Sets conditions
+     * Override in subclasses to apply baseline query constraints.
+     *
+     * Called automatically by filter() before user-driven filters are applied
+     * (unless conditions have been disabled via disableConditions()). Use this
+     * method to enforce business rules that should always be present regardless
+     * of the incoming request data — for example, scoping results to the current
+     * user's records or filtering out soft-deleted items.
      */
     protected function setConditions(): void
     {
     }
 
     /**
-     * Sets the filters
+     * Iterates over the given filters array and calls the matching method on this service.
+     *
+     * Each key in $filters is converted to camelCase and, if a matching public method
+     * exists on the service and is not listed in $guarded, that method is called with
+     * the corresponding value. This powers the automatic dispatch of request data to
+     * individual filter methods without manual if/switch logic.
+     *
+     * @param  array  $filters  Key/value pairs of filter name => value.
+     * @param  array  $guarded  Method names that must not be called via this dispatch.
      */
     protected function setFilters(
         array $filters,
@@ -191,7 +224,11 @@ class BaseFilterService
     }
 
     /**
-     * Adds the select
+     * Overrides the columns selected by the query.
+     *
+     * When a non-empty array is provided it replaces the current $select list.
+     * If an empty array is passed the existing $select value is preserved unchanged.
+     * This is applied during filter() after the transformer-derived columns are set.
      */
     public function setSelect(array $value = []): void
     {
@@ -199,7 +236,11 @@ class BaseFilterService
     }
 
     /**
-     * Disables the conditions
+     * Prevents setConditions() from running during the next filter() call.
+     *
+     * Useful in internal or admin contexts where the baseline query constraints
+     * defined in setConditions() should be skipped — for example, when fetching
+     * results on behalf of another user or for a background job.
      */
     public function disableConditions(): void
     {
@@ -207,7 +248,18 @@ class BaseFilterService
     }
 
     /**
-     * Start filtering
+     * Executes the full filter pipeline and returns paginated results.
+     *
+     * Steps performed in order:
+     *  1. Initialises the query builder from the model.
+     *  2. Adds SELECT columns and eager-loads derived from the transformer.
+     *  3. Applies any explicit $select overrides.
+     *  4. Runs setConditions() unless conditions have been disabled.
+     *  5. Dispatches each key in $data to its matching filter method, skipping
+     *     guarded, admin-only (for non-admin users), and base-class methods.
+     *  6. Applies the default sort if no 'sort' key was present in $data.
+     *  7. Dispatches $autoApply filters (always applied, no guarding).
+     *  8. Paginates the results using the method determined by 'pagination_type'.
      *
      * @return Builder
      */
@@ -229,7 +281,7 @@ class BaseFilterService
         $this->setFilters($this->data, [
             ...$this->getBaseGuardedMethods(),
             ...$this->guardedMethods,
-            ...optional($this->user)->isAdmin() ? [] : $this->adminMethods,
+            ...$this->userIsAdmin() ? [] : $this->adminMethods,
         ]);
 
         if (!isset($this->data['sort'])) {
@@ -243,11 +295,20 @@ class BaseFilterService
             $this->getDataValue('pagination_type')
         );
 
+        if ($paginateMethod === 'get') {
+            return $this->query->get();
+        }
+
         return $this->query->$paginateMethod($this->getPerPage());
     }
 
     /**
-     * Search specific table
+     * Delegates full-text search to the underlying query builder.
+     *
+     * Requires the model's query builder to implement a search() scope (e.g. via
+     * a Laravel Scout integration or a custom local scope). The search term comes
+     * from the 'search' key in the request data and is dispatched automatically
+     * by setFilters().
      */
     public function search(?string $search): void
     {
@@ -255,9 +316,16 @@ class BaseFilterService
     }
 
     /**
-     * Sorting
+     * Applies one or more sort directives to the query.
      *
-     * @param  string|array  $sort
+     * Each value in $sortValues should be a string in "column,direction" format
+     * (e.g. "created_at,desc"). A bare string is also accepted and treated as a
+     * single-item list. Each directive is validated and applied via applySort().
+     *
+     * @param  array|string  $sortValues  One or more "column,direction" sort strings.
+     * @param  bool  $hasBeenRenamed  Internal flag — true when the column was already
+     *                                 resolved from a $customSortColumns alias, preventing
+     *                                 an infinite redirect loop.
      */
     public function sort(array|string $sortValues, bool $hasBeenRenamed = false): self
     {
@@ -270,7 +338,15 @@ class BaseFilterService
     }
 
     /**
-     * Apply sort
+     * Validates and applies a single "column,direction" sort string to the query.
+     *
+     * Behaviour:
+     *  - Parses the column and direction (defaults to 'desc' if omitted).
+     *  - If the column matches a key in $customSortColumns, the sort is redirected
+     *    to the mapped column name with $hasBeenRenamed=true to avoid loops.
+     *  - If the column is not in the merged $sortColumns + $customSortColumns allow-list
+     *    and has not already been renamed, falls back to $defaultSortingColumn.
+     *  - Otherwise applies an orderBy() to the query.
      */
     public function applySort(string $sort, bool $hasBeenRenamed = false): void
     {
@@ -296,7 +372,10 @@ class BaseFilterService
     }
 
     /**
-     * Sets relations to eager load
+     * Eager-loads the given relationships on the current query.
+     *
+     * A convenience wrapper around $query->with() for use inside filter methods
+     * and setConditions(). Accepts the same argument formats as Eloquent's with().
      */
     protected function with(array $data): void
     {
@@ -304,7 +383,11 @@ class BaseFilterService
     }
 
     /**
-     * Sets count for relationships
+     * Adds relationship counts to the current query.
+     *
+     * A convenience wrapper around $query->withCount() for use inside filter
+     * methods and setConditions(). Each entry in $data follows the same format
+     * as Eloquent's withCount().
      */
     protected function withCount(array $data): void
     {
@@ -312,13 +395,17 @@ class BaseFilterService
     }
 
     /**
-     * Checks if value exists
+     * Checks whether a specific key in $data equals a given value.
+     *
+     * Returns false if the key does not exist at all, so this is safe to call
+     * without first checking for key presence. Useful inside filter methods to
+     * branch on the value of a sibling data key.
      *
      * @param  mixed  $value
      */
     public function dataHasValue(string $key, $value): bool
     {
-        if (array_key_exists($key, $this->data)) {
+        if (!array_key_exists($key, $this->data)) {
             return false;
         }
 
@@ -326,7 +413,10 @@ class BaseFilterService
     }
 
     /**
-     * Gets data value
+     * Returns the value of a key from $data, or a default if it is absent.
+     *
+     * Uses dataHasKeys() internally so that null values stored under a key are
+     * returned correctly rather than falling through to $default.
      *
      * @return mixed
      */
@@ -340,7 +430,10 @@ class BaseFilterService
     }
 
     /**
-     * Checks if keys exists
+     * Returns true only if every key in $keys is present in $data.
+     *
+     * Useful for guarding filter logic that requires multiple data keys to be
+     * present before it can safely execute.
      */
     public function dataHasKeys(array $keys = []): bool
     {
@@ -350,7 +443,11 @@ class BaseFilterService
     }
 
     /**
-     * Gets the property
+     * Returns a value from the $extras array by property name.
+     *
+     * Returns null (via optional()) if the property does not exist, so callers
+     * do not need to guard against missing keys. Use setExtras() to populate
+     * this bag before invoking filter().
      */
     public function getExtraProperty(string $property): mixed
     {
@@ -358,7 +455,12 @@ class BaseFilterService
     }
 
     /**
-     * Adds the select based on the transformer
+     * Resolves the transformer and uses its formatting definition to set SELECT columns
+     * and eager-load relationships on the query.
+     *
+     * Called once at the start of filter(). Delegates the actual column and relation
+     * logic to addSelectAndEagerLoad() so the same recursive behaviour applies to
+     * nested relationships.
      */
     protected function addSelectBasedOnTransformer(): void
     {
@@ -368,10 +470,23 @@ class BaseFilterService
     }
 
     /**
-     * Adds select and eager loads relationship
+     * Recursively applies SELECT columns and eager-loads relationships based on a
+     * transformer formatting array.
      *
-     * @param  Builder  $query
-     * @param  array  $format
+     * When devespressoApi.auto_select is enabled:
+     *  - Scalar entries in $format are treated as column names and added to the SELECT
+     *    list, prefixed with the table name to avoid ambiguity in joins.
+     *  - Hidden-attribute prefixes are stripped before adding columns.
+     *  - Columns that start with the custom-attributes prefix are excluded (they are
+     *    computed, not stored in the database).
+     *
+     * When devespressoApi.auto_eager_load is enabled:
+     *  - Array entries in $format are treated as relationship definitions and loaded
+     *    via with(), recursively calling this method for nested column selection.
+     *
+     * @param  Builder  $query   The query builder to modify (may be a relation query).
+     * @param  array  $format    Transformer formatting array (scalars = columns, arrays = relations).
+     * @param  string|null  $table  Table name to prefix columns with. Inferred from the model when null.
      */
     protected function addSelectAndEagerLoad($query, array $format, ?string $table = null): void
     {
@@ -423,7 +538,14 @@ class BaseFilterService
     }
 
     /**
-     * Gets the transformer
+     * Resolves the transformer class to use for this filter service.
+     *
+     * If $transformer is explicitly set on the subclass, that class is resolved
+     * from the container. Otherwise the transformer is inferred from the model's
+     * class basename by appending "Transformer" and prepending the configured
+     * transformers namespace (devespressoApi.paths.transformers).
+     *
+     * For example, a model named "Product" would resolve to "{namespace}ProductTransformer".
      */
     protected function guessTransformer(): BaseTransformer
     {
@@ -439,7 +561,24 @@ class BaseFilterService
     }
 
     /**
-     * Get base guarded methods
+     * Returns true if the current user has admin privileges.
+     *
+     * Checks for an isAdmin() method on the user object and calls it. If the method
+     * does not exist (e.g. a guest or a non-admin user model), returns false safely.
+     * This controls whether methods listed in $adminMethods are accessible.
+     */
+    private function userIsAdmin(): bool
+    {
+        return $this->user !== null && method_exists($this->user, 'isAdmin') && (bool) call_user_func([$this->user, 'isAdmin']);
+    }
+
+    /**
+     * Returns the names of all public methods defined directly on BaseFilterService.
+     *
+     * These are used as the default guard list in filter() to ensure that internal
+     * framework methods (like setQuery, setData, filter itself, etc.) cannot be
+     * triggered by keys in the incoming request data. 'sort' and 'search' are
+     * intentionally excluded so they remain dispatchable as filter methods.
      */
     protected function getBaseGuardedMethods(): array
     {
@@ -453,7 +592,13 @@ class BaseFilterService
     }
 
     /**
-     * Get
+     * Determines which Eloquent pagination method to use based on the requested type.
+     *
+     * Pagination type values and their behaviour:
+     *  - null     → uses paginate() or simplePaginate() based on the devespressoApi config default.
+     *  - 'none'   → uses get() to return all results without pagination.
+     *  - 'simple' → uses simplePaginate() (no total count query).
+     *  - anything else (e.g. 'full') → uses paginate() (includes total count).
      */
     protected function getPaginationMethod(?string $paginationType = null): string
     {
@@ -469,7 +614,9 @@ class BaseFilterService
     }
 
     /**
-     * Get page
+     * Returns the current page number from the request data.
+     *
+     * Reads the 'page' key from $data and defaults to 1 if not provided.
      */
     protected function getPage(): int
     {
@@ -477,7 +624,10 @@ class BaseFilterService
     }
 
     /**
-     * Gets per page
+     * Returns the number of results per page from the request data.
+     *
+     * Reads the 'per_page' key from $data and falls back to the model's own
+     * default per-page value (set via $perPage on the model) if not specified.
      */
     protected function getPerPage(): int
     {

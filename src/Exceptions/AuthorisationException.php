@@ -1,74 +1,46 @@
 <?php
 
-namespace Devespresso\DataFiltering\Exceptions;
+namespace Devespresso\LaravelApiKit\Exceptions;
 
-use Exception;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
-class AuthorisationException extends Exception
+class AuthorisationException extends \Exception
 {
-    /**
-     * Message
-     *
-     * @var string
-     */
-    protected $message;
+    protected ?string $view;
 
-    /**
-     * Status code
-     *
-     * @var int
-     */
-    protected $code;
-
-    /**
-     * Constructor
-     */
     public function __construct(
         ?string $message = null,
-        ?int $code = 403,
-        ?string $view = 'error.error'
+        int $code = 403,
+        ?string $view = null
     ) {
-        $this->message = $message;
-        $this->code = $code;
+        parent::__construct($message ?? Response::$statusTexts[$code] ?? 'Forbidden', $code);
+
         $this->view = $view;
     }
 
     /**
-     * render the request
+     * Renders the exception as an HTTP response.
      *
-     * @return Response
+     * JSON requests receive a structured error payload.
+     * Non-JSON requests are rendered via a view if one is set, otherwise aborted.
      */
-    public function render(Request $request)
+    public function render(Request $request): Response|View
     {
-        $message = $this->getErrorMessage($this->message);
-
         if (! $request->acceptsJson()) {
-            abort_if(! $this->view, $this->code, $message);
+            abort_if(! $this->view, $this->getCode(), $this->getMessage());
 
             return view($this->view, [
-                'code' => $this->code,
-                'message' => $this->message,
+                'code' => $this->getCode(),
+                'message' => $this->getMessage(),
             ]);
         }
 
         return response([
-            'code' => $this->code,
+            'code' => $this->getCode(),
             'status' => 'error',
-            'message' => $message,
-        ], $this->code);
-    }
-
-    /**
-     * Gets the status text
-     */
-    public function getErrorMessage(?string $message = null): string
-    {
-        if ($message) {
-            return $message;
-        }
-
-        return Response::$statusTexts[$this->code];
+            'message' => $this->getMessage(),
+        ], $this->getCode());
     }
 }
