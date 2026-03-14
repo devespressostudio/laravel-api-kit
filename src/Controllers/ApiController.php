@@ -21,11 +21,11 @@ class ApiController
 
     protected string $statusMessage = '';
 
-    /** Class string of the transformer to use. Resolved automatically if not set. */
-    protected ?string $transformer = null;
+    /** Class string or instance of the transformer to use. Resolved automatically if not set. */
+    protected string|object|null $transformer = null;
 
-    /** Class string of the repository to use. Resolved automatically if not set. */
-    protected ?string $repository = null;
+    /** Class string or instance of the repository to use. Resolved automatically if not set. */
+    protected string|object|null $repository = null;
 
     /** Set to false to disable auto-resolution of the repository. */
     protected bool $autoResolveRepository = true;
@@ -151,6 +151,10 @@ class ApiController
      */
     protected function resolveTransformer(): BaseTransformer
     {
+        if ($this->transformer instanceof BaseTransformer) {
+            return $this->transformer;
+        }
+
         $class = $this->transformer ?? (string) Str::of(class_basename($this))
             ->prepend(config('devespressoApi.paths.transformers'))
             ->replace('Controller', 'Transformer');
@@ -171,6 +175,10 @@ class ApiController
      */
     protected function resolveRepository(): BaseRepository
     {
+        if ($this->repository instanceof BaseRepository) {
+            return $this->repository;
+        }
+
         $class = $this->repository ?? (string) Str::of(class_basename($this))
             ->prepend(config('devespressoApi.paths.repositories'))
             ->replace('Controller', 'Repository');

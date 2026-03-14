@@ -12,11 +12,12 @@ use ReflectionClass;
 class BaseFilterService
 {
     /**
-     * Set the transformer
+     * Class string or instance of the transformer to use.
+     * Resolved automatically from the model name if not set.
      *
-     * @var string
+     * @var string|object|null
      */
-    protected $transformer = null;
+    protected string|object|null $transformer = null;
 
     /**
      * Select
@@ -549,6 +550,10 @@ class BaseFilterService
      */
     protected function guessTransformer(): BaseTransformer
     {
+        if ($this->transformer instanceof BaseTransformer) {
+            return $this->transformer;
+        }
+
         if ($this->transformer) {
             return resolve($this->transformer);
         }
