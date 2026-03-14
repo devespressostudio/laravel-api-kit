@@ -359,13 +359,13 @@ class BaseFilterService
         $allowedColumns = array_merge($this->sortColumns, $this->customSortColumns);
         // Check if it is a renamed column
         if (array_key_exists($column, $allowedColumns)) {
-            $this->sort($allowedColumns[$column], $hasBeenRenamed);
+            $this->sort($allowedColumns[$column], true);
 
             return;
         }
         // Check if the order is allowed
         if (!in_array($column, $allowedColumns) && !$hasBeenRenamed) {
-            $this->sort($this->defaultSortingColumn);
+            $this->sort($this->defaultSortingColumn, true);
 
             return;
         }
@@ -550,9 +550,6 @@ class BaseFilterService
      */
     protected function guessTransformer(): BaseTransformer
     {
-        if ($this->transformer instanceof BaseTransformer) {
-            return $this->transformer;
-        }
 
         if ($this->transformer) {
             return resolve($this->transformer);
