@@ -334,20 +334,20 @@ class PostController extends ApiController
     public function index(PostRequest $request): JsonResponse
     {
         return $this->setData(
-            $this->resolvedRepository->index($request->validated(), $request->user())
+            $this->repository->index($request->validated(), $request->user())
         )->respond();
     }
 
     public function store(PostRequest $request): JsonResponse
     {
         return $this->setData(
-            $this->resolvedRepository->create($request->validated())
+            $this->repository->create($request->validated())
         )->respond();
     }
 
     public function destroy(Post $post): JsonResponse
     {
-        $this->resolvedRepository->delete($post);
+        $this->repository->delete($post);
 
         return $this->setCode(204)->respond();
     }
