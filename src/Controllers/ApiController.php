@@ -33,12 +33,10 @@ class ApiController
     /** Set to false to disable auto-resolution of the transformer. */
     protected bool $autoResolveTransformer = true;
 
-    protected ?BaseRepository $resolvedRepository = null;
-
     public function __construct()
     {
         if ($this->autoResolveRepository) {
-            $this->resolvedRepository = $this->resolveRepository();
+            $this->repository = $this->resolveRepository();
         }
     }
 
