@@ -8,12 +8,12 @@ class ServiceProviderTest extends TestCase
 {
     public function test_hidden_attributes_prefix_config_is_set(): void
     {
-        $this->assertSame(':', config('devespressoApi.transformers.prefixes.hidden_attributes'));
+        $this->assertSame('!', config('devespressoApi.transformers.prefixes.hidden_attributes'));
     }
 
     public function test_custom_attributes_prefix_config_is_set(): void
     {
-        $this->assertSame('-', config('devespressoApi.transformers.prefixes.custom_attributes'));
+        $this->assertSame('@', config('devespressoApi.transformers.prefixes.custom_attributes'));
     }
 
     public function test_unmerged_format_prefix_config_is_set(): void

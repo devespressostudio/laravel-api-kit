@@ -40,13 +40,13 @@ abstract class BaseTransformer
      *      e.g. ':secret_column', ':hiddenRelation' => ['id']
      *
      *  - Custom attributes (configured in devespressoApi.transformers.prefixes.custom_attributes,
-     *    default '-') — the value is not read from the database column directly. Instead it is
+     *    default '@') — the value is not read from the database column directly. Instead it is
      *    resolved via the $customAttributes map, which points to a method on the transformer.
-     *      e.g. '-full_name'  →  $this->customAttributes['full_name']  →  $this->getFullName($model)
+     *      e.g. '@full_name'  →  $this->customAttributes['full_name']  →  $this->getFullName($model)
      *
      * Example:
      *   protected $formats = [
-     *       '*'      => ['id', 'name', '-full_name', ':internal_notes'],
+     *       '*'      => ['id', 'name', '@full_name', '!internal_notes'],
      *       'show'   => ['email', 'created_at', 'address' => ['line1', 'city']],
      *       '_index' => ['id', 'name'],  // returned as-is, no merge with '*'
      *   ];

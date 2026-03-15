@@ -37,8 +37,8 @@ return [
     'auto_eager_load'  => true,  // auto eager-load relations from transformer format
     'transformers' => [
         'prefixes' => [
-            'hidden_attributes' => ':',  // exclude from output
-            'custom_attributes' => '-',  // computed value, not a DB column
+            'hidden_attributes' => '!',  // exclude from output
+            'custom_attributes' => '@',  // computed value, not a DB column
             'unmerged_format'   => '_',  // format not merged with the * wildcard
         ],
     ],
@@ -249,12 +249,12 @@ class PostTransformer extends BaseTransformer
             'id',
             'title',
             'status',
-            '-word_count',         // custom attribute (computed)
-            ':internal_notes',     // hidden (excluded from output)
+            '@word_count',         // custom attribute (computed)
+            '!internal_notes',     // hidden (excluded from output)
             'author' => [          // nested relation
                 'id',
                 'name',
-                ':password',       // hidden within the relation
+                '!password',       // hidden within the relation
             ],
         ],
 
@@ -283,7 +283,7 @@ class PostTransformer extends BaseTransformer
         'author.name' => ['toUpper'],              // path-specific formatter
     ];
 
-    // Computed attributes resolved via methods (used with the '-' prefix)
+    // Computed attributes resolved via methods (used with the '@' prefix)
     protected $customAttributes = [
         'word_count' => 'getWordCount',
     ];
@@ -324,8 +324,8 @@ class PostTransformer extends BaseTransformer
 
 | Prefix | Meaning |
 |---|---|
-| `:attribute` | Hidden — excluded from output. On a relation key, still eager-loaded for SELECT purposes but not returned. |
-| `-attribute` | Custom — value resolved via the `$customAttributes` map instead of reading from the database. |
+| `!attribute` | Hidden — excluded from output. On a relation key, still eager-loaded for SELECT purposes but not returned. |
+| `@attribute` | Custom — value resolved via the `$customAttributes` map instead of reading from the database. |
 
 #### Format Key Prefixes
 
@@ -361,21 +361,21 @@ class PostTransformer extends BaseTransformer
             'title',
             'status',
             'user_id',       // foreign key — must be included so Laravel can match
-                             // the eager-loaded authors. Use ':user_id' instead if
+                             // the eager-loaded authors. Use '!user_id' instead if
                              // you want it selected but hidden from the response.
-            '-word_count',   // computed attribute — excluded from SELECT entirely
-            ':team_id',      // hidden from output — but still SELECTed (useful for auth checks)
+            '@word_count',   // computed attribute — excluded from SELECT entirely
+            '!team_id',      // hidden from output — but still SELECTed (useful for auth checks)
             'author' => [    // relation — auto eager-loaded
                 'id',
                 'name',
-                ':email',    // hidden from output — but still SELECTed
+                '!email',    // hidden from output — but still SELECTed
             ],
         ],
     ];
 }
 ```
 
-> **Important:** always include the foreign key that connects the relation (e.g. `user_id` on posts) in your transformer format. Without it, the column won't be selected and the eager-loaded relation will return empty. Use the plain key to include it in the response, or prefix it with `:` to select it silently.
+> **Important:** always include the foreign key that connects the relation (e.g. `user_id` on posts) in your transformer format. Without it, the column won't be selected and the eager-loaded relation will return empty. Use the plain key to include it in the response, or prefix it with `!` to select it silently.
 
 Calling `Post::filter($request->validated(), $request->user())` generates exactly:
 
@@ -390,7 +390,7 @@ FROM users
 WHERE users.id IN (1, 2, 3, ...)
 ```
 
-And the JSON response includes only what was declared as visible — `:` prefixed fields are fetched but stripped from the output:
+And the JSON response includes only what was declared as visible — `!` prefixed fields are fetched but stripped from the output:
 
 ```json
 {
@@ -410,7 +410,7 @@ And the JSON response includes only what was declared as visible — `:` prefixe
 }
 ```
 
-> `team_id` and `email` were selected but hidden via `:` — they never appear in the response. `user_id` is selected and visible since it was declared without a prefix. If you changed it to `':user_id'` in the transformer, it would still be selected but would disappear from the response.
+> `team_id` and `email` were selected but hidden via `!` — they never appear in the response. `user_id` is selected and visible since it was declared without a prefix. If you changed it to `'!user_id'` in the transformer, it would still be selected but would disappear from the response.
 
 The Eloquent equivalent you would otherwise write by hand:
 

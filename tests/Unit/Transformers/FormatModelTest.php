@@ -114,7 +114,7 @@ class FormatModelTest extends TestCase
         $this->transformer->customAttributes = ['full_name' => 'getFullName'];
         $model = (new FakeUser())->forceFill(['first_name' => 'Alice', 'last_name' => 'Smith']);
 
-        $result = $this->transformer->callFormatModel($model, ['-full_name']);
+        $result = $this->transformer->callFormatModel($model, ['@full_name']);
 
         $this->assertArrayHasKey('full_name', $result);
         $this->assertSame('Alice Smith', $result['full_name']);

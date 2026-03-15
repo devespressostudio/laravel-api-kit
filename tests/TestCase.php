@@ -26,8 +26,8 @@ abstract class TestCase extends OrchestraTestCase
             'prefix'   => '',
         ]);
 
-        $app['config']->set('devespressoApi.transformers.prefixes.hidden_attributes', ':');
-        $app['config']->set('devespressoApi.transformers.prefixes.custom_attributes', '-');
+        $app['config']->set('devespressoApi.transformers.prefixes.hidden_attributes', '!');
+        $app['config']->set('devespressoApi.transformers.prefixes.custom_attributes', '@');
         $app['config']->set('devespressoApi.transformers.prefixes.unmerged_format', '_');
         $app['config']->set('devespressoApi.auto_select', false);
         $app['config']->set('devespressoApi.auto_eager_load', false);

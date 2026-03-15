@@ -22,8 +22,8 @@ return [
 
     'transformers' => [
         'prefixes' => [
-            'hidden_attributes' => ':',
-            'custom_attributes' => '-',
+            'hidden_attributes' => '!',
+            'custom_attributes' => '@',
             'unmerged_format' => '_',
         ],
     ],
