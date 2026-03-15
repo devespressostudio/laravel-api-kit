@@ -103,6 +103,21 @@ public function setConditions(): void
 {
     $team = $this->getExtraProperty('team');
     $this->query->where('visibility', $team->default_visibility);
+
+    // $this->user is the authenticated user passed as the second argument to filter().
+    // It is available anywhere in the filter service — setConditions(), filter methods,
+    // and any custom method you add to the subclass.
+    $this->query->where('user_id', $this->user->id);
+}
+
+public function status(string $value): void
+{
+    // $this->user is available here too
+    if ($value === 'draft' && !$this->user?->isAdmin()) {
+        return;
+    }
+
+    $this->query->where('status', $value);
 }
 ```
 
