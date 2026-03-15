@@ -347,7 +347,10 @@ class PostTransformer extends BaseTransformer
             'id',
             'title',
             'status',
-            '-word_count',   // computed attribute — excluded from SELECT
+            'user_id',       // foreign key — must be included so Laravel can match
+                             // the eager-loaded authors. Use ':user_id' instead if
+                             // you want it selected but hidden from the response.
+            '-word_count',   // computed attribute — excluded from SELECT entirely
             ':team_id',      // hidden from output — but still SELECTed (useful for auth checks)
             'author' => [    // relation — auto eager-loaded
                 'id',
@@ -359,10 +362,12 @@ class PostTransformer extends BaseTransformer
 }
 ```
 
+> **Important:** always include the foreign key that connects the relation (e.g. `user_id` on posts) in your transformer format. Without it, the column won't be selected and the eager-loaded relation will return empty. Use the plain key to include it in the response, or prefix it with `:` to select it silently.
+
 Calling `Post::filter($request->validated(), $request->user())` generates exactly:
 
 ```sql
-SELECT posts.id, posts.title, posts.status, posts.team_id
+SELECT posts.id, posts.title, posts.status, posts.user_id, posts.team_id
 FROM posts
 WHERE ...
 
@@ -391,12 +396,12 @@ And the JSON response includes only what was declared as visible — `:` prefixe
 }
 ```
 
-> `team_id` and `email` were selected so downstream code (guards, formatters, auth checks) can read them — they just never appear in the response.
+> `team_id` and `email` were selected but hidden via `:` — they never appear in the response. `user_id` is selected and visible since it was declared without a prefix.
 
 The Eloquent equivalent you would otherwise write by hand:
 
 ```php
-Post::select('posts.id', 'posts.title', 'posts.status', 'posts.team_id')
+Post::select('posts.id', 'posts.title', 'posts.status', 'posts.user_id', 'posts.team_id')
     ->with(['author' => fn ($q) => $q->select('users.id', 'users.name', 'users.email')])
     ->where('team_id', $user->team_id)
     ->where('published', true)
