@@ -72,6 +72,40 @@ Call `filter()` from a controller:
 $posts = Post::filter($request->validated(), $request->user());
 ```
 
+`filter()` accepts two optional extra parameters:
+
+```php
+Post::filter(
+    $request->validated(),  // request data — drives filter methods and sorting
+    $request->user(),       // authenticated user — controls admin-only filters
+    $query,                 // pre-scoped Builder — useful when you need to apply
+                            // base constraints before the filter service runs
+    $extras,                // arbitrary key/value context — accessible inside
+                            // filter methods via $this->getExtraProperty('key')
+);
+```
+
+A common use case for both:
+
+```php
+// Scope to a parent resource and pass its ID to filter methods
+$query = Post::where('team_id', $team->id);
+
+$posts = Post::filter(
+    $request->validated(),
+    $request->user(),
+    $query,
+    ['team' => $team]
+);
+
+// Inside PostFilterService:
+public function setConditions(): void
+{
+    $team = $this->getExtraProperty('team');
+    $this->query->where('visibility', $team->default_visibility);
+}
+```
+
 ---
 
 ### 2. `BaseFilterService`
@@ -270,6 +304,78 @@ class PostTransformer extends BaseTransformer
 | `*` | Wildcard — always included, merged with the matched route key |
 | `show`, `index`, etc. | Merged on top of `*` for that controller method |
 | `_index` | Returned standalone — does **not** merge with `*` |
+
+#### Transformer-Driven Query
+
+When `auto_select` and `auto_eager_load` are enabled, the filter service reads your transformer's `$formats` definition and automatically builds an optimised query — no `SELECT *`, no N+1.
+
+Given this transformer:
+
+```php
+class PostTransformer extends BaseTransformer
+{
+    protected $formats = [
+        '*' => [
+            'id',
+            'title',
+            'status',
+            '-word_count',   // computed attribute — excluded from SELECT
+            ':team_id',      // hidden from output — but still SELECTed (useful for auth checks)
+            'author' => [    // relation — auto eager-loaded
+                'id',
+                'name',
+                ':email',    // hidden from output — but still SELECTed
+            ],
+        ],
+    ];
+}
+```
+
+Calling `Post::filter($request->validated(), $request->user())` generates exactly:
+
+```sql
+SELECT posts.id, posts.title, posts.status, posts.team_id
+FROM posts
+WHERE ...
+
+-- one eager-load query, no N+1:
+SELECT users.id, users.name, users.email
+FROM users
+WHERE users.id IN (1, 2, 3, ...)
+```
+
+And the JSON response includes only what was declared as visible — `:` prefixed fields are fetched but stripped from the output:
+
+```json
+{
+    "posts": [
+        {
+            "id": 1,
+            "title": "Hello World",
+            "status": "published",
+            "word_count": 42,
+            "author": {
+                "id": 5,
+                "name": "Alice"
+            }
+        }
+    ]
+}
+```
+
+> `team_id` and `email` were selected so downstream code (guards, formatters, auth checks) can read them — they just never appear in the response.
+
+The Eloquent equivalent you would otherwise write by hand:
+
+```php
+Post::select('posts.id', 'posts.title', 'posts.status', 'posts.team_id')
+    ->with(['author' => fn ($q) => $q->select('users.id', 'users.name', 'users.email')])
+    ->where('team_id', $user->team_id)
+    ->where('published', true)
+    ->simplePaginate($perPage);
+```
+
+With the package, that query is derived automatically from the transformer — you never write it, and it stays in sync with your response format as the transformer evolves.
 
 ---
 
