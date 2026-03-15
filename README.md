@@ -206,6 +206,8 @@ $this->dataHasKeys(['key1', 'key2']); // check all keys are present
 $this->getExtraProperty('tenant_id'); // get a value from $extras
 $this->with(['comments', 'tags']);    // eager load relations
 $this->withCount(['comments']);       // eager load relation counts
+$this->disableConditions();           // skip setConditions() for the next filter() call — useful in admin or internal contexts
+$this->setSelect(['id', 'title']);    // override the auto-selected columns; has no effect when auto_select is disabled
 ```
 
 #### Pagination
@@ -332,6 +334,17 @@ class PostTransformer extends BaseTransformer
 | `*` | Wildcard — always included, merged with the matched route key |
 | `show`, `index`, etc. | Merged on top of `*` for that controller method |
 | `_index` | Returned standalone — does **not** merge with `*` |
+
+#### `$wrapper`
+
+The `$wrapper` property controls the key name used to wrap the transformed data in the response. If not set, it defaults to `'data'`:
+
+```php
+protected $wrapper = 'post';
+// produces: {"post": {...}} instead of {"data": {...}}
+```
+
+The wrapper can also be overridden per-call from the controller via `setData($post, 'post')`.
 
 #### Transformer-Driven Query
 
@@ -518,12 +531,7 @@ class PostController extends ApiController
 When there is no model data to return, call `respond()` directly:
 
 ```php
-public function destroy(Post $post): JsonResponse
-{
-    $this->repository->delete($post);
-
-    return $this->setCode(204)->respond();
-}
+return $this->setCode(204)->respond();
 ```
 
 You can also pass an array to `respond()` to merge additional data into the response, or override existing keys entirely:
@@ -534,6 +542,55 @@ return $this->setData($post)->respond(['meta' => ['generated_at' => now()]]);
 
 // Override a key set by setData()
 return $this->setData($post)->respond(['post' => $customPayload], override: true);
+```
+
+#### `setData()` optional parameters
+
+`setData()` accepts two optional arguments that give you finer control over the response shape:
+
+- **`$wrapper`** — overrides the key name used to wrap the data in the response. By default the transformer's own `$wrapper` value is used. Passing a string replaces it for that call:
+
+    ```php
+    return $this->setData($post, 'post')->respond();
+    // produces: {"post": {...}} instead of the transformer default
+    ```
+
+- **`$format`** — selects a specific format key from the transformer's `$formats` array instead of auto-detecting from the current route action:
+
+    ```php
+    return $this->setData($post, format: 'show')->respond();
+    // uses the 'show' format from PostTransformer
+    ```
+
+#### Overriding the transformer at runtime
+
+Use `setTransformer()` to swap out the auto-resolved transformer for a specific call. Useful when one controller needs to serve multiple models or formats:
+
+```php
+return $this->setTransformer(SummaryTransformer::class)
+    ->setData($post)
+    ->respond();
+```
+
+#### `setCode()` and error responses
+
+`setCode()` automatically sets `status` to `"error"` for any code >= 400. An optional second argument sets a custom message:
+
+```php
+return $this->setCode(404, 'Post not found')->respond();
+// {"code": 404, "status": "error", "message": "Post not found"}
+```
+
+#### Disabling auto-resolution
+
+Both `$autoResolveRepository` and `$autoResolveTransformer` can be set to `false` on the subclass to disable auto-resolution when you want full manual control:
+
+```php
+class PostController extends ApiController
+{
+    protected bool $autoResolveRepository = false;
+    protected bool $autoResolveTransformer = false;
+}
 ```
 
 Default response format:
