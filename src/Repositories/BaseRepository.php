@@ -29,7 +29,7 @@ abstract class BaseRepository
      * @example $repository->withoutHooks('afterCreated')->create($attributes);
      * @example $repository->withoutHooks('beforeUpdate', 'afterUpdated')->update($model, $attributes);
      */
-    public function withoutHooks(string ...$hooks): static
+    public function withoutHooks(string ...$hooks): self
     {
         $this->skippedHooks = count($hooks) ? $hooks : ['beforeCreate', 'afterCreated', 'beforeUpdate', 'afterUpdated', 'beforeDelete', 'afterDeleted'];
 
