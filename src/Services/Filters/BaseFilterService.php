@@ -81,6 +81,26 @@ class BaseFilterService
     protected $customSortColumns = [];
 
     /**
+     * Maps a sort alias to a method on the subclass that returns a raw SQL expression.
+     *
+     * Use this for sorts that cannot be expressed as a simple column — such as FIELD(),
+     * COALESCE(), or any other raw SQL expression. The mapped method takes no arguments
+     * and returns the SQL string. The framework appends the resolved direction and calls
+     * orderByRaw() automatically.
+     *
+     * Example:
+     *   protected $rawSort = ['status_order' => 'sortByStatus'];
+     *
+     *   protected function sortByStatus(): string
+     *   {
+     *       return "FIELD(status, 'active', 'pending', 'closed')";
+     *   }
+     *
+     * @var array
+     */
+    protected $rawSort = [];
+
+    /**
      * Sets the default sorting
      *
      * @var array
@@ -284,6 +304,7 @@ class BaseFilterService
             ...$this->getBaseGuardedMethods(),
             ...$this->guardedMethods,
             ...$this->userIsAdmin() ? [] : $this->adminMethods,
+            ...array_values($this->rawSort),
         ]);
 
         if (!isset($this->data['sort'])) {
@@ -344,6 +365,8 @@ class BaseFilterService
      *
      * Behaviour:
      *  - Parses the column and direction (defaults to 'desc' if omitted).
+     *  - If the column matches a key in $rawSort, the mapped method is called with
+     *    the direction string, allowing fully custom orderByRaw() logic.
      *  - If the column matches a key in $customSortColumns, the sort is redirected
      *    to the mapped column name with $hasBeenRenamed=true to avoid loops.
      *  - If the column is not in the merged $sortColumns + $customSortColumns allow-list
@@ -356,6 +379,15 @@ class BaseFilterService
         [$column, $order] = array_pad(explode(',', $sort), 2, 'desc');
         // Sets the order
         $order = $order === 'asc' ? 'asc' : 'desc';
+        // Check if it is a raw sort alias
+        if (array_key_exists($column, $this->rawSort)) {
+            $method = $this->rawSort[$column];
+            if (method_exists($this, $method)) {
+                $this->query->orderByRaw($this->$method() . ' ' . $order);
+            }
+
+            return;
+        }
         // Allowed columns
         $allowedColumns = array_merge($this->sortColumns, $this->customSortColumns);
         // Check if it is a renamed column

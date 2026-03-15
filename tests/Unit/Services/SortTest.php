@@ -101,4 +101,54 @@ class SortTest extends TestCase
         // Should redirect to 'users.name' with hasBeenRenamed=true
         $this->assertSame('users.name', $this->getOrders()[0]['column']);
     }
+
+    // -------------------------------------------------------------------------
+    // rawSort
+    // -------------------------------------------------------------------------
+
+    public function test_apply_sort_calls_raw_sort_method_and_applies_order_by_raw(): void
+    {
+        $service = new class extends FakeFilterService {
+            public function sortByStatus(): string
+            {
+                return "FIELD(status, 'active', 'pending')";
+            }
+        };
+
+        $service->rawSort = ['status_order' => 'sortByStatus'];
+        $service->setQuery(FakeUser::query());
+
+        $service->applySort('status_order,asc');
+
+        $orders = $service->getQuery()->getQuery()->orders ?? [];
+        $this->assertSame("FIELD(status, 'active', 'pending') asc", $orders[0]['sql']);
+    }
+
+    public function test_apply_sort_raw_sort_defaults_direction_to_desc(): void
+    {
+        $service = new class extends FakeFilterService {
+            public function sortByStatus(): string
+            {
+                return "FIELD(status, 'active', 'pending')";
+            }
+        };
+
+        $service->rawSort = ['status_order' => 'sortByStatus'];
+        $service->setQuery(FakeUser::query());
+
+        $service->applySort('status_order');
+
+        $orders = $service->getQuery()->getQuery()->orders ?? [];
+        $this->assertSame("FIELD(status, 'active', 'pending') desc", $orders[0]['sql']);
+    }
+
+    public function test_apply_sort_raw_sort_silently_skips_missing_method(): void
+    {
+        $this->service->rawSort = ['status_order' => 'nonExistentMethod'];
+
+        // Should not throw
+        $this->service->applySort('status_order,asc');
+
+        $this->assertEmpty($this->getOrders());
+    }
 }

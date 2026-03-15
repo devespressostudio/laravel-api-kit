@@ -343,6 +343,34 @@ GET /posts?sort=created_at,desc
 GET /posts?sort[]=title,asc&sort[]=created_at,desc
 ```
 
+Allowed sort columns are controlled by `$sortColumns`. You can also define aliases via `$customSortColumns`:
+
+```php
+protected $sortColumns = ['created_at', 'updated_at', 'id', 'title'];
+
+// 'date' in the request maps to 'created_at' on the query
+protected $customSortColumns = ['date' => 'created_at'];
+```
+
+For complex sorts that can't be expressed as a simple column — such as `FIELD()`, `COALESCE()`, or any raw SQL expression — use `$rawSort` to map an alias to a method on your filter service:
+
+```php
+protected $rawSort = ['status_order' => 'sortByStatus'];
+
+protected function sortByStatus(): string
+{
+    return "FIELD(status, 'active', 'pending', 'closed')";
+}
+```
+
+```
+GET /posts?sort=status_order,asc
+```
+
+The method returns the raw SQL expression — no need to handle the direction. The framework appends it and calls `orderByRaw()` for you. Raw sort methods bypass the column allowlist entirely.
+
+> Methods listed in `$rawSort` are automatically guarded from request data dispatch — they cannot be triggered as filter methods regardless of their visibility.
+
 ---
 
 ### 3. `BaseTransformer`

@@ -20,6 +20,7 @@ class FakeFilterService extends BaseFilterService
 {
     public $sortColumns = ['created_at', 'updated_at', 'id'];
     public $customSortColumns = [];
+    public $rawSort = [];
     public $defaultSortingColumn = ['id,desc'];
     public $guardedMethods = [];
     public $adminMethods = [];
