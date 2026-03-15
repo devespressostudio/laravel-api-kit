@@ -386,6 +386,7 @@ And the JSON response includes only what was declared as visible — `:` prefixe
             "id": 1,
             "title": "Hello World",
             "status": "published",
+            "user_id": 5,
             "word_count": 42,
             "author": {
                 "id": 5,
@@ -396,7 +397,7 @@ And the JSON response includes only what was declared as visible — `:` prefixe
 }
 ```
 
-> `team_id` and `email` were selected but hidden via `:` — they never appear in the response. `user_id` is selected and visible since it was declared without a prefix.
+> `team_id` and `email` were selected but hidden via `:` — they never appear in the response. `user_id` is selected and visible since it was declared without a prefix. If you changed it to `':user_id'` in the transformer, it would still be selected but would disappear from the response.
 
 The Eloquent equivalent you would otherwise write by hand:
 
@@ -514,7 +515,28 @@ class PostController extends ApiController
 }
 ```
 
-Response format:
+When there is no model data to return, call `respond()` directly:
+
+```php
+public function destroy(Post $post): JsonResponse
+{
+    $this->repository->delete($post);
+
+    return $this->setCode(204)->respond();
+}
+```
+
+You can also pass an array to `respond()` to merge additional data into the response, or override existing keys entirely:
+
+```php
+// Merge extra keys into the response
+return $this->setData($post)->respond(['meta' => ['generated_at' => now()]]);
+
+// Override a key set by setData()
+return $this->setData($post)->respond(['post' => $customPayload], override: true);
+```
+
+Default response format:
 
 ```json
 {
