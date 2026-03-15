@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use ReflectionClass;
+use ReflectionMethod;
 
 class BaseFilterService
 {
@@ -218,7 +219,7 @@ class BaseFilterService
     ): void {
         foreach ($filters as $method => $value) {
             $method = Str::camel($method);
-            if (!in_array($method, $guarded) && method_exists($this, $method)) {
+            if ($this->isDispatchableMethod($method, $guarded)) {
                 $this->$method($value);
             }
         }
@@ -569,6 +570,19 @@ class BaseFilterService
      * does not exist (e.g. a guest or a non-admin user model), returns false safely.
      * This controls whether methods listed in $adminMethods are accessible.
      */
+    /**
+     * Returns true if the given method exists on this instance and is public.
+     *
+     * Protected and private methods are intentionally excluded — only public
+     * methods should be triggerable from incoming request data.
+     */
+    private function isDispatchableMethod(string $method, array $guarded = []): bool
+    {
+        return !in_array($method, $guarded)
+            && method_exists($this, $method)
+            && (new ReflectionMethod($this, $method))->isPublic();
+    }
+
     private function userIsAdmin(): bool
     {
         return $this->user !== null && method_exists($this->user, 'isAdmin') && (bool) call_user_func([$this->user, 'isAdmin']);

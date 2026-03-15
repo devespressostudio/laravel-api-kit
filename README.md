@@ -268,15 +268,27 @@ $this->setSelect(['id', 'title']);    // override the auto-selected columns; has
 
 The filter service works by taking each key in the incoming request data, converting it to camelCase, and calling the matching public method on the service if it exists. For example, passing `author_id=5` in the request will automatically call `$this->authorId(5)`.
 
-This means **any public method on your filter service subclass is callable from request data by default**. The package protects against this in three ways:
+This means **any public method on your filter service subclass is callable from request data by default**. The package protects against this in four ways:
 
 **1. Base class methods are always blocked**
 
 All public methods defined on `BaseFilterService` itself (e.g. `setData`, `setQuery`, `filter`) are automatically guarded and can never be triggered by request data. `sort` and `search` are intentionally excluded from this list so they remain dispatchable.
 
-**2. `$guardedMethods` — block specific methods on your subclass**
+**2. Protected methods are automatically blocked**
 
-Use this to explicitly prevent methods on your subclass from being triggered by request data:
+Only `public` methods can be dispatched. If you define a method as `protected` on your subclass, it will never be triggered by request data — no configuration needed. Use this as a natural way to write internal helper methods without worrying about accidental exposure:
+
+```php
+protected function applyTeamScope(): void
+{
+    // safe — cannot be triggered from request data
+    $this->query->where('team_id', $this->user->team_id);
+}
+```
+
+**3. `$guardedMethods` — block specific public methods on your subclass**
+
+Use this to explicitly prevent public methods on your subclass from being triggered by request data:
 
 ```php
 protected $guardedMethods = ['internalScope', 'sensitiveMethod'];
@@ -284,7 +296,7 @@ protected $guardedMethods = ['internalScope', 'sensitiveMethod'];
 
 Any method listed here will be silently skipped even if a matching key is present in the request.
 
-**3. `$adminMethods` — restrict methods to admin users only**
+**4. `$adminMethods` — restrict methods to admin users only**
 
 Methods listed here are only dispatched if the authenticated user has an `isAdmin()` method that returns `true`. For all other users the method is silently skipped:
 
@@ -292,7 +304,7 @@ Methods listed here are only dispatched if the authenticated user has an `isAdmi
 protected $adminMethods = ['includeTrashed', 'byTeam'];
 ```
 
-> **Rule of thumb:** if a method on your filter service should not be triggerable directly from a request key, add it to `$guardedMethods`. If it should only be available to admins, add it to `$adminMethods`.
+> **Rule of thumb:** keep internal helpers `protected`. If a public method should not be triggerable from a request key, add it to `$guardedMethods`. If it should only be available to admins, add it to `$adminMethods`.
 
 #### Auto-Apply
 

@@ -176,6 +176,63 @@ class FilterPipelineTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // isDispatchableMethod — all three conditions
+    // -------------------------------------------------------------------------
+
+    public function test_non_existent_method_is_not_dispatched(): void
+    {
+        $service = $this->makeService()
+            ->setData(['non_existent_method' => true, 'pagination_type' => 'none']);
+
+        // Should not throw — silently skipped
+        $result = $service->filter();
+
+        $this->assertInstanceOf(Collection::class, $result);
+    }
+
+    public function test_protected_method_is_not_dispatched_via_data(): void
+    {
+        $service = new class extends FakeFilterService {
+            public bool $protectedWasCalled = false;
+
+            protected function protectedFilter(mixed $value): void
+            {
+                $this->protectedWasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['protected_filter' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->protectedWasCalled);
+    }
+
+    public function test_guarded_method_is_not_dispatched_even_if_public_and_exists(): void
+    {
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public function sensitiveMethod(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service->guardedMethods = ['sensitiveMethod'];
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['sensitive_method' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->wasCalled);
+    }
+
+    // -------------------------------------------------------------------------
     // Auto-apply
     // -------------------------------------------------------------------------
 
