@@ -10,9 +10,35 @@ abstract class BaseRepository
 {
     protected Model $model;
 
+    private array $skippedHooks = [];
+
     public function __construct()
     {
         $this->model = $this->resolveModel();
+    }
+
+    /**
+     * Skips the specified lifecycle hooks for the next operation.
+     *
+     * Call with no arguments to skip all hooks, or pass specific hook names to skip only those.
+     * The skip list is automatically cleared after each create/update/delete call.
+     *
+     * Available hooks: beforeCreate, afterCreated, beforeUpdate, afterUpdated, beforeDelete, afterDeleted
+     *
+     * @example $repository->withoutHooks()->delete($model);
+     * @example $repository->withoutHooks('afterCreated')->create($attributes);
+     * @example $repository->withoutHooks('beforeUpdate', 'afterUpdated')->update($model, $attributes);
+     */
+    public function withoutHooks(string ...$hooks): static
+    {
+        $this->skippedHooks = count($hooks) ? $hooks : ['beforeCreate', 'afterCreated', 'beforeUpdate', 'afterUpdated', 'beforeDelete', 'afterDeleted'];
+
+        return $this;
+    }
+
+    private function shouldSkip(string $hook): bool
+    {
+        return in_array($hook, $this->skippedHooks);
     }
 
     /**
@@ -38,20 +64,20 @@ abstract class BaseRepository
     /**
      * Called before a model is created. Modify $attributes by reference to alter what gets persisted.
      */
-    protected function beforeCreate(array &$attributes = []): void
-    {
-    }
+    protected function beforeCreate(array &$attributes = []): void {}
 
     /**
      * Creates a new record.
      */
     public function create(array $attributes): Model
     {
-        $this->beforeCreate($attributes);
+        if (! $this->shouldSkip('beforeCreate')) $this->beforeCreate($attributes);
 
         $model = $this->model->create($attributes);
 
-        $this->afterCreated($model, $attributes);
+        if (! $this->shouldSkip('afterCreated')) $this->afterCreated($model, $attributes);
+
+        $this->skippedHooks = [];
 
         return $model;
     }
@@ -59,16 +85,12 @@ abstract class BaseRepository
     /**
      * Called after a model is created.
      */
-    protected function afterCreated(Model $model, array $attributes): void
-    {
-    }
+    protected function afterCreated(Model $model, array $attributes): void {}
 
     /**
      * Called before a model is updated. Modify $attributes by reference to alter what gets persisted.
      */
-    protected function beforeUpdate(?Model $model = null, array &$attributes = []): void
-    {
-    }
+    protected function beforeUpdate(?Model $model = null, array &$attributes = []): void {}
 
     /**
      * Updates a record. Accepts a Model instance or a raw ID.
@@ -79,21 +101,26 @@ abstract class BaseRepository
             $model = $this->get($model);
         }
 
-        $this->beforeUpdate($model, $attributes);
+        if (! $this->shouldSkip('beforeUpdate')) $this->beforeUpdate($model, $attributes);
 
         return tap($model, function ($model) use ($attributes) {
             $model->update($attributes);
 
-            $this->afterUpdated($model, $attributes);
+            if (! $this->shouldSkip('afterUpdated')) $this->afterUpdated($model, $attributes);
+
+            $this->skippedHooks = [];
         });
     }
 
     /**
      * Called after a model is updated.
      */
-    protected function afterUpdated(Model $model, array $attributes): void
-    {
-    }
+    protected function afterUpdated(Model $model, array $attributes): void {}
+
+    /**
+     * Called before a model is deleted.
+     */
+    protected function beforeDelete(Model $model): void {}
 
     /**
      * Deletes a record. Accepts a Model instance or a raw ID.
@@ -104,8 +131,21 @@ abstract class BaseRepository
             $model = $this->get($model);
         }
 
-        return $model->delete();
+        if (! $this->shouldSkip('beforeDelete')) $this->beforeDelete($model);
+
+        $result = $model->delete();
+
+        if (! $this->shouldSkip('afterDeleted')) $this->afterDeleted($model);
+
+        $this->skippedHooks = [];
+
+        return $result;
     }
+
+    /**
+     * Called after a model is deleted.
+     */
+    protected function afterDeleted(Model $model): void {}
 
     /**
      * Resolves the Eloquent model for this repository.
@@ -127,7 +167,7 @@ abstract class BaseRepository
                 ->replace('Repository', '');
 
         if (! class_exists($class)) {
-            throw new \RuntimeException("Model class [{$class}] could not be found for [".static::class.'].');
+            throw new \RuntimeException("Model class [{$class}] could not be found for [" . static::class . '].');
         }
 
         return new $class();

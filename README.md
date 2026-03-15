@@ -307,6 +307,16 @@ class PostRepository extends BaseRepository
     {
         Cache::forget("post:{$model->id}");
     }
+
+    protected function beforeDelete(Model $model): void
+    {
+        // runs before delete
+    }
+
+    protected function afterDeleted(Model $model): void
+    {
+        // runs after delete
+    }
 }
 ```
 
@@ -317,7 +327,18 @@ $repo->index($data, $user);          // filtered, paginated list
 $repo->get($id);                     // single record
 $repo->create($attributes);          // create with hooks
 $repo->update($model, $attributes);  // update with hooks
-$repo->delete($model);               // delete
+$repo->delete($model);               // delete with hooks
+```
+
+To skip hooks for a single operation, chain `withoutHooks()` before the call. The skip list resets automatically after each operation.
+
+```php
+// Skip all hooks
+$repo->withoutHooks()->delete($model);
+
+// Skip specific hooks only
+$repo->withoutHooks('afterCreated')->create($attributes);
+$repo->withoutHooks('beforeUpdate', 'afterUpdated')->update($model, $attributes);
 ```
 
 ---
