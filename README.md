@@ -21,29 +21,83 @@ php artisan vendor:publish --provider="Devespresso\LaravelApiKit\LaravelApiKitSe
 
 ## Configuration
 
-`config/devespressoApi.php`
+Publish the config file to `config/devespressoApi.php`:
+
+```bash
+php artisan vendor:publish --provider="Devespresso\LaravelApiKit\LaravelApiKitServiceProvider"
+```
+
+---
+
+### `pagination.with_pages`
+
+Controls the default pagination method used when no `pagination_type` is passed in the request.
 
 ```php
-return [
-    'pagination' => [
-        'with_pages' => false, // true = paginate() (with total), false = simplePaginate()
-    ],
-    'paths' => [
-        'models'        => 'App\\Models\\',
-        'transformers'  => 'App\\Transformers\\',
-        'repositories'  => 'App\\Repositories\\',
-    ],
-    'auto_select'      => true,  // auto SELECT columns from transformer format
-    'auto_eager_load'  => true,  // auto eager-load relations from transformer format
-    'transformers' => [
-        'prefixes' => [
-            'hidden_attributes' => '!',  // exclude from output
-            'custom_attributes' => '@',  // computed value, not a DB column
-            'unmerged_format'   => '_',  // format not merged with the * wildcard
-        ],
-    ],
-];
+'pagination' => [
+    'with_pages' => false, // false = simplePaginate() | true = paginate() (includes total count)
+],
 ```
+
+---
+
+### `paths`
+
+Namespaces used to auto-resolve models, transformers, and repositories from class names. Change these if your project uses a non-standard structure.
+
+```php
+'paths' => [
+    'models'       => 'App\\Models\\',        // UserRepository → App\Models\User
+    'transformers' => 'App\\Transformers\\',  // UserController → App\Transformers\UserTransformer
+    'repositories' => 'App\\Repositories\\', // UserController → App\Repositories\UserRepository
+],
+```
+
+---
+
+### `auto_select`
+
+When `true`, the filter service reads the active transformer format and automatically adds a `SELECT` clause to the query — only fetching columns that are actually needed. Prevents `SELECT *` without any manual effort.
+
+```php
+'auto_select' => true,
+```
+
+Set to `false` to let Eloquent fall back to `SELECT *`, or when you need full manual control over selected columns.
+
+---
+
+### `auto_eager_load`
+
+When `true`, any relation defined as a nested array in the transformer format is automatically eager-loaded with its own scoped `SELECT`. Eliminates N+1 queries without writing `->with()` manually.
+
+```php
+'auto_eager_load' => true,
+```
+
+Set to `false` to manage eager loading manually in your filter service or controller.
+
+---
+
+### `transformers.prefixes`
+
+Single-character prefixes used in transformer `$formats` arrays to control how attributes are treated. All three are fully configurable — if any clash with your attribute names, change them here and the entire package will use your values automatically.
+
+```php
+'transformers' => [
+    'prefixes' => [
+        'hidden_attributes' => '!', // selected from DB but excluded from the JSON response
+        'custom_attributes' => '@', // computed via a transformer method, not read from the DB
+        'unmerged_format'   => '_', // format key that is returned as-is, not merged with '*'
+    ],
+],
+```
+
+| Key | Default | Effect |
+|---|---|---|
+| `hidden_attributes` | `!` | Attribute is SELECTed but stripped from the response |
+| `custom_attributes` | `@` | Attribute value is resolved via `$customAttributes` map |
+| `unmerged_format` | `_` | Format key is not merged with the `*` wildcard format |
 
 ---
 
@@ -326,6 +380,8 @@ class PostTransformer extends BaseTransformer
 |---|---|
 | `!attribute` | Hidden — excluded from output. On a relation key, still eager-loaded for SELECT purposes but not returned. |
 | `@attribute` | Custom — value resolved via the `$customAttributes` map instead of reading from the database. |
+
+> All prefixes are configurable via `config/devespressoApi.php` under `transformers.prefixes`. If your attribute names clash with the defaults, change them there and the entire package will use your values automatically.
 
 #### Format Key Prefixes
 
