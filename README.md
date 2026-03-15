@@ -85,34 +85,47 @@ Post::filter(
 );
 ```
 
-A common use case for both:
+**Pre-scoping the query with a parent resource (`$query`):**
 
 ```php
-// Scope to a parent resource and pass its ID to filter methods
+// Only show posts belonging to the current team — enforced before filters run
 $query = Post::where('team_id', $team->id);
 
+$posts = Post::filter($request->validated(), $request->user(), $query);
+```
+
+**Passing context into filter methods (`$extras`):**
+
+```php
 $posts = Post::filter(
     $request->validated(),
     $request->user(),
-    $query,
-    ['team' => $team]
+    query: null,
+    extras: ['team' => $team]
 );
 
-// Inside PostFilterService:
+// Inside PostFilterService — read the extra value via getExtraProperty():
 public function setConditions(): void
 {
     $team = $this->getExtraProperty('team');
     $this->query->where('visibility', $team->default_visibility);
+}
+```
 
-    // $this->user is the authenticated user passed as the second argument to filter().
-    // It is available anywhere in the filter service — setConditions(), filter methods,
-    // and any custom method you add to the subclass.
+**Using `$this->user` inside the filter service:**
+
+`$this->user` holds the authenticated user passed as the second argument to `filter()`. It is available anywhere in the filter service — `setConditions()`, filter methods, and any custom method you add to the subclass.
+
+```php
+public function setConditions(): void
+{
+    // Scope results to the authenticated user
     $this->query->where('user_id', $this->user->id);
 }
 
 public function status(string $value): void
 {
-    // $this->user is available here too
+    // Only admins can filter by draft status
     if ($value === 'draft' && !$this->user?->isAdmin()) {
         return;
     }
