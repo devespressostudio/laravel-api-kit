@@ -1,0 +1,44 @@
+<?php
+
+namespace {{ namespace }};
+
+use Devespresso\LaravelApiKit\Controllers\ApiController;
+use {{ modelNamespace }}\{{ name }};
+use {{ requestNamespace }}\{{ name }}Request;
+use Illuminate\Http\JsonResponse;
+
+class {{ class }} extends ApiController
+{
+    public function index({{ name }}Request $request): JsonResponse
+    {
+        return $this->setData(
+            $this->repository->index($request->validated(), $request->user())
+        )->respond();
+    }
+
+    public function show({{ name }}Request $request, {{ name }} ${{ modelVariable }}): JsonResponse
+    {
+        return $this->setData(${{ modelVariable }})->respond();
+    }
+
+    public function store({{ name }}Request $request): JsonResponse
+    {
+        return $this->setCode(201)->setData(
+            $this->repository->create($request->validated())
+        )->respond();
+    }
+
+    public function update({{ name }}Request $request, {{ name }} ${{ modelVariable }}): JsonResponse
+    {
+        return $this->setData(
+            $this->repository->update(${{ modelVariable }}, $request->validated())
+        )->respond();
+    }
+
+    public function destroy({{ name }}Request $request, {{ name }} ${{ modelVariable }}): JsonResponse
+    {
+        $this->repository->delete(${{ modelVariable }});
+
+        return $this->setCode(200)->respond();
+    }
+}

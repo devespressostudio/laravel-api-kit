@@ -1,0 +1,9 @@
+<?php
+
+namespace {{ namespace }};
+
+use Devespresso\LaravelApiKit\Repositories\BaseRepository;
+
+class {{ class }} extends BaseRepository
+{
+}

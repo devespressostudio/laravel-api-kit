@@ -8,6 +8,10 @@ return [
         'models' => 'App\\Models\\',
         'transformers' => 'App\\Transformers\\',
         'repositories' => 'App\\Repositories\\',
+        'controllers' => 'App\\Http\\Controllers\\',
+        'requests' => 'App\\Http\\Requests\\',
+        'authorisation' => 'App\\Services\\Authorisation\\',
+        'filter_services' => 'App\\Services\\Filters\\',
     ],
 
     /**

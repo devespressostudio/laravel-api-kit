@@ -19,6 +19,45 @@ Publish the config file:
 php artisan vendor:publish --provider="Devespresso\LaravelApiKit\LaravelApiKitServiceProvider"
 ```
 
+## Scaffolding
+
+Generate a full API resource with a single command:
+
+```bash
+php artisan devespresso:api-kit:scaffold Post
+```
+
+This creates all 7 components at once:
+
+| Component | Generated Class |
+|---|---|
+| Model | `App\Models\Post` |
+| Repository | `App\Repositories\PostRepository` |
+| Controller | `App\Http\Controllers\PostController` |
+| Transformer | `App\Transformers\PostTransformer` |
+| Request | `App\Http\Requests\PostRequest` |
+| Authorisation | `App\Services\Authorisation\PostAuthorisationService` |
+| Filter Service | `App\Services\Filters\PostFilterService` |
+
+All paths are driven by the `paths` config — if you customise them, the scaffold command follows automatically.
+
+### Options
+
+```bash
+# Only generate specific components
+php artisan devespresso:api-kit:scaffold Post --only=model,repository,transformer
+
+# Skip specific components
+php artisan devespresso:api-kit:scaffold Post --except=model
+
+# Overwrite existing files
+php artisan devespresso:api-kit:scaffold Post --force
+```
+
+Available component names for `--only` and `--except`: `model`, `repository`, `controller`, `transformer`, `request`, `authorisation`, `filter-service`.
+
+---
+
 ## Configuration
 
 Publish the config file to `config/devespressoApi.php`:
@@ -43,13 +82,17 @@ Controls the default pagination method used when no `pagination_type` is passed 
 
 ### `paths`
 
-Namespaces used to auto-resolve models, transformers, and repositories from class names. Change these if your project uses a non-standard structure.
+Namespaces used to auto-resolve classes and to determine where the scaffold command places generated files. Change these if your project uses a non-standard structure.
 
 ```php
 'paths' => [
-    'models'       => 'App\\Models\\',        // UserRepository → App\Models\User
-    'transformers' => 'App\\Transformers\\',  // UserController → App\Transformers\UserTransformer
-    'repositories' => 'App\\Repositories\\', // UserController → App\Repositories\UserRepository
+    'models'          => 'App\\Models\\',
+    'transformers'    => 'App\\Transformers\\',
+    'repositories'    => 'App\\Repositories\\',
+    'controllers'     => 'App\\Http\\Controllers\\',
+    'requests'        => 'App\\Http\\Requests\\',
+    'authorisation'   => 'App\\Services\\Authorisation\\',
+    'filter_services' => 'App\\Services\\Filters\\',
 ],
 ```
 

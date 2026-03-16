@@ -2,6 +2,7 @@
 
 namespace Devespresso\LaravelApiKit;
 
+use Devespresso\LaravelApiKit\Commands\ScaffoldCommand;
 use Illuminate\Support\ServiceProvider;
 
 class LaravelApiKitServiceProvider extends ServiceProvider
@@ -16,6 +17,12 @@ class LaravelApiKitServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/config/devespressoApi.php' => config_path('devespressoApi.php'),
         ]);
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                ScaffoldCommand::class,
+            ]);
+        }
     }
 
     /**

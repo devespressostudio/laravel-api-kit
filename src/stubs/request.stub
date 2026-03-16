@@ -1,0 +1,16 @@
+<?php
+
+namespace {{ namespace }};
+
+use Devespresso\LaravelApiKit\Requests\BaseRequest;
+
+class {{ class }} extends BaseRequest
+{
+    protected function actionsRules(): array
+    {
+        return [
+            'store' => fn () => [],
+            'update' => fn () => [],
+        ];
+    }
+}

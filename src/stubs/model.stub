@@ -1,0 +1,24 @@
+<?php
+
+namespace {{ namespace }};
+
+use {{ filterServiceNamespace }}\{{ class }}FilterService;
+use Devespresso\LaravelApiKit\Traits\EnableDatabaseFiltering;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class {{ class }} extends Model
+{
+    use HasFactory, EnableDatabaseFiltering;
+
+    protected string $defaultFilterService = {{ class }}FilterService::class;
+
+    protected $fillable = [];
+
+    protected $searchableColumns = [];
+
+    protected function casts(): array
+    {
+        return [];
+    }
+}

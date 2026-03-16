@@ -1,0 +1,20 @@
+<?php
+
+namespace {{ namespace }};
+
+use Devespresso\LaravelApiKit\Services\Filters\BaseFilterService;
+
+class {{ class }} extends BaseFilterService
+{
+    protected $sortColumns = [
+        'created_at',
+        'updated_at',
+        'id',
+    ];
+
+    protected $defaultSortingColumn = ['id,desc'];
+
+    protected function setConditions(): void
+    {
+    }
+}

@@ -1,0 +1,10 @@
+<?php
+
+namespace {{ namespace }};
+
+use Devespresso\LaravelApiKit\Services\Authorisation\BaseAuthorisationService;
+
+class {{ class }} extends BaseAuthorisationService
+{
+    protected ?string $mainProperty = '{{ mainProperty }}';
+}
