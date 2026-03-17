@@ -700,29 +700,63 @@ class PostController extends ApiController
     {
         return $this->setData(
             $this->repository->create($request->validated())
-        )->respond();
+        )->respondCreated();
     }
 
     public function destroy(Post $post): JsonResponse
     {
         $this->repository->delete($post);
 
-        return $this->setCode(204)->respond();
+        return $this->respondNoContent();
     }
 }
 ```
 
-When there is no model data to return, call `respond()` directly:
+#### Response shortcuts
+
+`respondCreated()` returns a `201 Created` response. `respondNoContent()` returns a `204 No Content` response:
 
 ```php
-return $this->setCode(204)->respond();
+return $this->setData($post)->respondCreated();
+return $this->respondNoContent();
 ```
 
-You can also pass an array to `respond()` to merge additional data into the response, or override existing keys entirely:
+#### `setRawData()` — bypass the transformer
+
+Use `setRawData()` to add data to the response without going through the transformer. Defaults to the `'data'` key:
+
+```php
+// Uses the default 'data' wrapper
+return $this->setRawData(['total' => 100, 'active' => 42])->respond();
+
+// Custom key
+return $this->setRawData(['total' => 100], 'stats')->respond();
+```
+
+This is especially useful when `autoResolveTransformer` is disabled, or when the data doesn't come from a model.
+
+#### `setMeta()` and `addMeta()` — response metadata
+
+Attach metadata (permissions, roles, feature flags, etc.) to the response via the `meta` key:
+
+```php
+// Bulk set
+$this->setMeta(['permissions' => ['edit', 'delete'], 'roles' => ['admin']]);
+
+// Incremental — chainable
+$this->addMeta('permissions', ['edit', 'delete'])
+     ->addMeta('roles', ['admin']);
+```
+
+`setMeta()` replaces the entire meta array. `addMeta()` adds a single key-value pair. The `meta` key is only included in the response when non-empty.
+
+#### `respond()` — merging extra data
+
+You can pass an array to `respond()` to merge additional data into the response, or override existing keys entirely:
 
 ```php
 // Merge extra keys into the response
-return $this->setData($post)->respond(['meta' => ['generated_at' => now()]]);
+return $this->setData($post)->respond(['extra' => 'value']);
 
 // Override a key set by setData()
 return $this->setData($post)->respond(['post' => $customPayload], override: true);
@@ -784,10 +818,13 @@ Default response format:
     "code": 200,
     "status": "success",
     "message": "OK",
+    "meta": { ... },
     "data": { ... },
     "pagination": { ... }
 }
 ```
+
+> `meta` is only present when metadata has been set via `setMeta()` or `addMeta()`.
 
 ---
 
