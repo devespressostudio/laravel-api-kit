@@ -19,6 +19,8 @@ class ApiController
 
     protected array $pagination = [];
 
+    protected array $meta = [];
+
     protected string $statusMessage = '';
 
     /** Class string or instance of the transformer to use. Resolved automatically if not set. */
@@ -68,6 +70,26 @@ class ApiController
     }
 
     /**
+     * Replaces all metadata with the given array.
+     */
+    protected function setMeta(array $meta = []): self
+    {
+        $this->meta = $meta;
+
+        return $this;
+    }
+
+    /**
+     * Adds a single key-value pair to the metadata.
+     */
+    protected function addMeta(string $key, mixed $value): self
+    {
+        $this->meta[$key] = $value;
+
+        return $this;
+    }
+
+    /**
      * Transforms and sets the response data.
      * Automatically extracts pagination metadata from LengthAwarePaginator instances.
      */
@@ -92,6 +114,16 @@ class ApiController
     }
 
     /**
+     * Sets response data without going through the transformer.
+     */
+    protected function setRawData(mixed $value, string $key = 'data'): self
+    {
+        $this->data[$key] = $value;
+
+        return $this;
+    }
+
+    /**
      * Builds and returns the JSON response.
      *
      * @param  array  $response  Additional data to merge into the response payload.
@@ -106,6 +138,10 @@ class ApiController
             'message' => $this->getStatusMessage(),
         ];
 
+        if (! empty($this->meta)) {
+            $payload['meta'] = $this->meta;
+        }
+
         if ($override) {
             $merged = array_merge($payload, $this->data, $response, $this->pagination);
         } else {
@@ -113,6 +149,22 @@ class ApiController
         }
 
         return response()->json($merged, $this->code);
+    }
+
+    /**
+     * Returns a 201 Created response.
+     */
+    protected function respondCreated(array $response = [], bool $override = true): JsonResponse
+    {
+        return $this->setCode(201)->respond($response, $override);
+    }
+
+    /**
+     * Returns a 204 No Content response.
+     */
+    protected function respondNoContent(): JsonResponse
+    {
+        return $this->setCode(204)->respond();
     }
 
     /**

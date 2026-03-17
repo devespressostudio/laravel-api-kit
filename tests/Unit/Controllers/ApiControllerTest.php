@@ -1,0 +1,206 @@
+<?php
+
+namespace Devespresso\LaravelApiKit\Tests\Unit\Controllers;
+
+use Devespresso\LaravelApiKit\Tests\Fixtures\Controllers\FakeApiController;
+use Devespresso\LaravelApiKit\Tests\TestCase;
+
+class ApiControllerTest extends TestCase
+{
+    private FakeApiController $controller;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->controller = new FakeApiController();
+    }
+
+    public function test_respond_returns_correct_default_structure(): void
+    {
+        $response = $this->controller->respondWithDefaults();
+
+        $data = $response->getData(true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+        ], $data);
+    }
+
+    public function test_set_raw_data_with_default_key_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithRawData(['foo' => 'bar']);
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'data' => ['foo' => 'bar'],
+        ], $data);
+    }
+
+    public function test_set_raw_data_with_custom_key_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithRawData(['total' => 100], 'stats');
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'stats' => ['total' => 100],
+        ], $data);
+    }
+
+    public function test_set_meta_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithMeta([
+            'permissions' => ['edit', 'delete'],
+            'roles' => ['admin'],
+        ]);
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'meta' => [
+                'permissions' => ['edit', 'delete'],
+                'roles' => ['admin'],
+            ],
+        ], $data);
+    }
+
+    public function test_set_meta_with_empty_array_excludes_meta_from_structure(): void
+    {
+        $response = $this->controller->respondWithMeta([]);
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+        ], $data);
+    }
+
+    public function test_add_meta_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithAddMeta('permissions', ['edit']);
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'meta' => [
+                'permissions' => ['edit'],
+            ],
+        ], $data);
+    }
+
+    public function test_add_meta_chained_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithMultipleMeta(
+            ['permissions', ['edit', 'delete']],
+            ['roles', ['admin']],
+        );
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'meta' => [
+                'permissions' => ['edit', 'delete'],
+                'roles' => ['admin'],
+            ],
+        ], $data);
+    }
+
+    public function test_respond_created_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithCreated();
+
+        $data = $response->getData(true);
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame([
+            'code' => 201,
+            'status' => 'success',
+            'message' => 'Created',
+        ], $data);
+    }
+
+    public function test_respond_no_content_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithNoContent();
+
+        $data = $response->getData(true);
+
+        $this->assertSame(204, $response->getStatusCode());
+        $this->assertSame([
+            'code' => 204,
+            'status' => 'success',
+            'message' => 'No Content',
+        ], $data);
+    }
+
+    public function test_error_code_returns_correct_structure(): void
+    {
+        $response = $this->controller->respondWithCode(422, 'Validation failed');
+
+        $data = $response->getData(true);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([
+            'code' => 422,
+            'status' => 'error',
+            'message' => 'Validation failed',
+        ], $data);
+    }
+
+    public function test_raw_data_and_meta_coexist_with_correct_structure(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithAddMeta('permissions', ['edit']);
+        $response = $controller->respondWithRawData(['user' => 'John']);
+
+        $data = $response->getData(true);
+
+        $this->assertSame([
+            'code' => 200,
+            'status' => 'success',
+            'message' => 'OK',
+            'meta' => [
+                'permissions' => ['edit'],
+            ],
+            'data' => ['user' => 'John'],
+        ], $data);
+    }
+
+    public function test_respond_created_with_raw_data_returns_correct_structure(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithRawData(['id' => 1, 'name' => 'John']);
+        $response = $controller->respondWithCreated();
+
+        $data = $response->getData(true);
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame([
+            'code' => 201,
+            'status' => 'success',
+            'message' => 'Created',
+            'data' => ['id' => 1, 'name' => 'John'],
+        ], $data);
+    }
+}
