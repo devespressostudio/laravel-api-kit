@@ -261,6 +261,24 @@ class FilterPipelineTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // addSelectAndEagerLoad — accessor prefix
+    // -------------------------------------------------------------------------
+
+    public function test_accessor_prefixed_columns_are_excluded_from_select(): void
+    {
+        $this->app['config']->set('devespressoApi.auto_select', true);
+
+        $service = $this->makeService();
+        $query = FakeUser::query();
+        $service->callAddSelectAndEagerLoad($query, ['id', 'name', '~full_name'], 'fake_users');
+        $sql = $query->toSql();
+
+        $this->assertStringContainsString('id', $sql);
+        $this->assertStringContainsString('name', $sql);
+        $this->assertStringNotContainsString('full_name', $sql);
+    }
+
+    // -------------------------------------------------------------------------
     // Per-page
     // -------------------------------------------------------------------------
 

@@ -28,6 +28,7 @@ return [
         'prefixes' => [
             'hidden_attributes' => '!',
             'custom_attributes' => '@',
+            'accessor_attributes' => '~',
             'unmerged_format' => '_',
         ],
     ],

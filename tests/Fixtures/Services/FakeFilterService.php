@@ -60,6 +60,11 @@ class FakeFilterService extends BaseFilterService
         return $this->query;
     }
 
+    public function callAddSelectAndEagerLoad($query, array $format, ?string $table = null): void
+    {
+        $this->addSelectAndEagerLoad($query, $format, $table);
+    }
+
     public function callGetBaseGuardedMethods(): array
     {
         return $this->getBaseGuardedMethods();

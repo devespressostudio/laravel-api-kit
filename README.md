@@ -129,9 +129,10 @@ Single-character prefixes used in transformer `$formats` arrays to control how a
 ```php
 'transformers' => [
     'prefixes' => [
-        'hidden_attributes' => '!', // selected from DB but excluded from the JSON response
-        'custom_attributes' => '@', // computed via a transformer method, not read from the DB
-        'unmerged_format'   => '_', // format key that is returned as-is, not merged with '*'
+        'hidden_attributes'  => '!', // selected from DB but excluded from the JSON response
+        'custom_attributes'  => '@', // computed via a transformer method, not read from the DB
+        'accessor_attributes'=> '~', // Laravel model accessor — not selected from DB, but included in output
+        'unmerged_format'    => '_', // format key that is returned as-is, not merged with '*'
     ],
 ],
 ```
@@ -140,6 +141,7 @@ Single-character prefixes used in transformer `$formats` arrays to control how a
 |---|---|---|
 | `hidden_attributes` | `!` | Attribute is SELECTed but stripped from the response |
 | `custom_attributes` | `@` | Attribute value is resolved via `$customAttributes` map |
+| `accessor_attributes` | `~` | Attribute is a Laravel model accessor — NOT added to SELECT, but included in the output via `$model->attribute` |
 | `unmerged_format` | `_` | Format key is not merged with the `*` wildcard format |
 
 ---
@@ -431,7 +433,8 @@ class PostTransformer extends BaseTransformer
             'id',
             'title',
             'status',
-            '@word_count',         // custom attribute (computed)
+            '@word_count',         // custom attribute (computed via transformer method)
+            '~reading_time',       // accessor attribute (Laravel model accessor, not a DB column)
             '!internal_notes',     // hidden (excluded from output)
             'author' => [          // nested relation
                 'id',
@@ -508,6 +511,7 @@ class PostTransformer extends BaseTransformer
 |---|---|
 | `!attribute` | Hidden — excluded from output. On a relation key, still eager-loaded for SELECT purposes but not returned. |
 | `@attribute` | Custom — value resolved via the `$customAttributes` map instead of reading from the database. |
+| `~attribute` | Accessor — a Laravel model accessor. Not added to the SELECT query, but read from the model and included in the output. |
 
 > All prefixes are configurable via `config/devespressoApi.php` under `transformers.prefixes`. If your attribute names clash with the defaults, change them there and the entire package will use your values automatically.
 
@@ -544,15 +548,16 @@ class PostTransformer extends BaseTransformer
             'id',
             'title',
             'status',
-            'user_id',       // foreign key — must be included so Laravel can match
-                             // the eager-loaded authors. Use '!user_id' instead if
-                             // you want it selected but hidden from the response.
-            '@word_count',   // computed attribute — excluded from SELECT entirely
-            '!team_id',      // hidden from output — but still SELECTed (useful for auth checks)
-            'author' => [    // relation — auto eager-loaded
+            'user_id',         // foreign key — must be included so Laravel can match
+                               // the eager-loaded authors. Use '!user_id' instead if
+                               // you want it selected but hidden from the response.
+            '@word_count',     // custom attribute — excluded from SELECT, resolved via transformer method
+            '~reading_time',   // accessor attribute — excluded from SELECT, resolved via model accessor
+            '!team_id',        // hidden from output — but still SELECTed (useful for auth checks)
+            'author' => [      // relation — auto eager-loaded
                 'id',
                 'name',
-                '!email',    // hidden from output — but still SELECTed
+                '!email',      // hidden from output — but still SELECTed
             ],
         ],
     ];
@@ -574,6 +579,8 @@ FROM users
 WHERE users.id IN (1, 2, 3, ...)
 ```
 
+`@word_count` and `~reading_time` are both excluded from SELECT — the difference is how their values are resolved: `@` calls a method on the transformer, while `~` calls the model accessor directly (`$model->reading_time`).
+
 And the JSON response includes only what was declared as visible — `!` prefixed fields are fetched but stripped from the output:
 
 ```json
@@ -585,6 +592,7 @@ And the JSON response includes only what was declared as visible — `!` prefixe
             "status": "published",
             "user_id": 5,
             "word_count": 42,
+            "reading_time": 3,
             "author": {
                 "id": 5,
                 "name": "Alice"
@@ -599,6 +607,8 @@ And the JSON response includes only what was declared as visible — `!` prefixe
 The Eloquent equivalent you would otherwise write by hand:
 
 ```php
+// @word_count and ~reading_time are omitted from SELECT — they are resolved
+// after the query via the transformer method and model accessor respectively.
 Post::select('posts.id', 'posts.title', 'posts.status', 'posts.user_id', 'posts.team_id')
     ->with(['author' => fn ($q) => $q->select('users.id', 'users.name', 'users.email')])
     ->where('team_id', $user->team_id)

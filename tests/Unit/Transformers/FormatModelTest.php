@@ -120,6 +120,27 @@ class FormatModelTest extends TestCase
         $this->assertSame('Alice Smith', $result['full_name']);
     }
 
+    public function test_resolves_accessor_attributes_using_the_tilde_prefix(): void
+    {
+        $model = new class extends Model {
+            protected $table = 'fake';
+            public $timestamps = false;
+
+            public function getFullNameAttribute(): string
+            {
+                return $this->attributes['first_name'] . ' ' . $this->attributes['last_name'];
+            }
+        };
+
+        $model->forceFill(['id' => 1, 'first_name' => 'Alice', 'last_name' => 'Smith']);
+
+        $result = $this->transformer->callFormatModel($model, ['id', '~full_name']);
+
+        $this->assertArrayHasKey('full_name', $result);
+        $this->assertSame('Alice Smith', $result['full_name']);
+        $this->assertArrayHasKey('id', $result);
+    }
+
     public function test_formats_nested_relations_recursively(): void
     {
         $address = (new class extends Model {

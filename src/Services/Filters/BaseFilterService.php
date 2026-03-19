@@ -535,7 +535,7 @@ class BaseFilterService
                 $item
             ), $columns);
             /**
-             * Remove Custom attributes
+             * Remove Custom attributes and Accessor attributes (computed, not stored in DB)
              */
             $columnWithoutCustom = array_filter(
                 $hiddenAttributes,
@@ -543,6 +543,10 @@ class BaseFilterService
                 !Str::startsWith(
                     $item,
                     config('devespressoApi.transformers.prefixes.custom_attributes')
+                ) &&
+                !Str::startsWith(
+                    $item,
+                    config('devespressoApi.transformers.prefixes.accessor_attributes')
                 )
             );
 

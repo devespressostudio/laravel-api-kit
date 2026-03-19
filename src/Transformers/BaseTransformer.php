@@ -44,6 +44,12 @@ abstract class BaseTransformer
      *    resolved via the $customAttributes map, which points to a method on the transformer.
      *      e.g. '@full_name'  →  $this->customAttributes['full_name']  →  $this->getFullName($model)
      *
+     *  - Accessor attributes (configured in devespressoApi.transformers.prefixes.accessor_attributes,
+     *    default '~') — the column is NOT added to the SELECT query (it is a Laravel model accessor,
+     *    not a real database column), but the value is still read from the model and included in the
+     *    output via normal property access.
+     *      e.g. '~full_name'  →  $model->full_name  (resolved by the model's accessor)
+     *
      * Example:
      *   protected $formats = [
      *       '*'      => ['id', 'name', '@full_name', '!internal_notes'],
@@ -233,6 +239,14 @@ abstract class BaseTransformer
 
             $attribute = Str::replaceFirst(
                 config('devespressoApi.transformers.prefixes.custom_attributes'),
+                '',
+                $attribute
+            );
+
+            // Strip accessor prefix — the value is read from the model like a normal
+            // attribute, but it is not selected from the database (handled in the filter service).
+            $attribute = Str::replaceFirst(
+                config('devespressoApi.transformers.prefixes.accessor_attributes'),
                 '',
                 $attribute
             );
