@@ -19,6 +19,12 @@ class FakeTransformer extends BaseTransformer
     public $customAttributes = [];
     public $defaults = [];
     public $guarded = [];
+    public ?string $latestVersion = null;
+    public ?array $versionedRenames = null;
+    public ?array $versionedFormatters = null;
+    public ?array $versionedGuarded = null;
+    public ?array $versionedDefaults = null;
+    public ?array $versionedCustomAttributes = null;
 
     // -------------------------------------------------------------------------
     // Public wrappers for protected methods
@@ -27,6 +33,31 @@ class FakeTransformer extends BaseTransformer
     public function callFormatModel($collection, $attributes, array $currentKey = []): ?array
     {
         return $this->formatModel($collection, $attributes, $currentKey);
+    }
+
+    public function callResolveVersionedFormats(?string $version = null): array
+    {
+        return $this->resolveVersionedFormats($version);
+    }
+
+    public function callResolveVersionChain(?string $requestedVersion, array $versions): array
+    {
+        return $this->resolveVersionChain($requestedVersion, $versions);
+    }
+
+    public function callApplyVersionChain(array $formats, array $versions): array
+    {
+        return $this->applyVersionChain($formats, $versions);
+    }
+
+    public function callAppendItems(array $formatArray, array $items): array
+    {
+        return $this->appendItems($formatArray, $items);
+    }
+
+    public function callRemoveItems(array $formatArray, array $items): array
+    {
+        return $this->removeItems($formatArray, $items);
     }
 
     public function callRenameKey(string $attribute, array $currentKey = []): string

@@ -97,6 +97,49 @@ abstract class BaseTransformer
     protected $guarded = [];
 
     /**
+     * The version resolved from the last call to resolveVersionedFormats().
+     *
+     * Null when versioning is disabled or no version was detected. When a
+     * version falls back to the full chain (unknown version), this holds the
+     * last entry in the versions config, not the raw requested value.
+     *
+     * @var string|null
+     */
+    protected ?string $resolvedVersion = null;
+
+    /**
+     * Declares the highest version this transformer explicitly supports.
+     *
+     * When set, any version in the config chain that falls within this boundary
+     * but has no corresponding format method will throw a RuntimeException instead
+     * of being silently skipped. Versions beyond this value are always skipped.
+     *
+     * Leave null to skip all missing version methods silently.
+     *
+     * Example: $latestVersion = 'v3'  — v2Format() and v3Format() must exist.
+     *
+     * @var string|null
+     */
+    protected ?string $latestVersion = null;
+
+    /**
+     * Versioned property overrides set during the last resolveVersionedFormats() call.
+     *
+     * These hold the merged result of applying all version-chain property overrides
+     * (renames, formatters, guarded, defaults, customAttributes) on top of the base
+     * properties. They are reset at the start of each resolveVersionedFormats() call
+     * so that the base properties are never mutated by versioning.
+     *
+     * Consumer methods (renameKey, findFormatters, etc.) read from these when non-null,
+     * falling back to the base properties when versioning has not run or is disabled.
+     */
+    protected ?array $versionedRenames = null;
+    protected ?array $versionedFormatters = null;
+    protected ?array $versionedGuarded = null;
+    protected ?array $versionedDefaults = null;
+    protected ?array $versionedCustomAttributes = null;
+
+    /**
      * Entry point for transforming model data into a formatted array.
      *
      * Pass the raw Eloquent result (a Model, Collection, or Paginator) and
@@ -115,47 +158,402 @@ abstract class BaseTransformer
     }
 
     /**
-     * Resolves which format definition to use from the $formats array.
+     * Resolves which format definition to use.
      *
-     * Format resolution order:
-     *  1. If $formatMethod is provided, use it as the key; otherwise read the
+     * When versioning is disabled this follows the original resolution order:
+     *  1. If $formatMethod is provided use it as the key; otherwise read the
      *     current controller method name from the active Laravel route action.
-     *  2. If that key exists in $formats, merge it on top of $formats['*']
-     *     (the global/wildcard format) and return the result.
+     *  2. If that key exists in the resolved formats, merge it on top of '*'
+     *     and return the result.
      *  3. If a prefixed version of the key exists (prefix defined in config
      *     devespressoApi.transformers.prefixes.unmerged_format, typically '_'),
-     *     return that format standalone — it does NOT merge with $formats['*'].
-     *  4. Fall back to $formats['*'] alone, or an empty array if not defined.
+     *     return that format standalone — it does NOT merge with '*'.
+     *  4. Fall back to '*' alone, or an empty array if not defined.
      *
-     * Example $formats definition in a subclass:
-     *   protected $formats = [
-     *       '*'     => ['id', 'name'],          // always included
-     *       'show'  => ['email', 'created_at'], // merged with * on the show route
-     *       '_index' => ['id', 'name'],          // returned as-is, no * merge
-     *   ];
+     * When versioning is enabled the resolved formats are first built by
+     * applying the version chain (see resolveVersionedFormats()), then the
+     * same resolution order above is applied to the result.
      */
     public function getFormatting(?string $formatMethod = null): array
     {
+        $formats = $this->resolveVersionedFormats();
+
         $method = Str::afterLast(Route::currentRouteAction(), '@');
 
-        $mainFormat = $this->formats['*'] ?? [];
+        $mainFormat = $formats['*'] ?? [];
 
         $requireFormat = $formatMethod ?? $method;
 
-        if (array_key_exists($requireFormat, $this->formats)) {
-            return array_merge(
-                $mainFormat,
-                $this->formats[$requireFormat]
-            );
+        if (array_key_exists($requireFormat, $formats)) {
+            return array_merge($mainFormat, $formats[$requireFormat]);
         }
-        // If the require format is prefixed by a underscore it wont merge with the main format
+
         $requireFormat = config('devespressoApi.transformers.prefixes.unmerged_format') . $requireFormat;
 
-        if (array_key_exists($requireFormat, $this->formats)) {
-            return $this->formats[$requireFormat];
+        if (array_key_exists($requireFormat, $formats)) {
+            return $formats[$requireFormat];
         }
 
         return $mainFormat;
+    }
+
+    /**
+     * Returns the base format definition used as the starting point for
+     * version chain resolution.
+     *
+     * Override this method instead of setting $formats when using versioning.
+     * The default implementation returns $formats for full backward compatibility.
+     *
+     * Example:
+     *   protected function baseFormat(): array
+     *   {
+     *       return [
+     *           '*'    => ['id', 'name', 'status'],
+     *           'show' => ['email', 'created_at'],
+     *       ];
+     *   }
+     */
+    protected function baseFormat(): array
+    {
+        return $this->formats;
+    }
+
+    /**
+     * Resolves the final formats array, applying the version chain when enabled.
+     *
+     * Accepts an optional $version to bypass auto-detection — useful in tests
+     * or when the version is already known at the call site.
+     *
+     * When versioning is disabled, returns $formats unchanged.
+     */
+    protected function resolveVersionedFormats(?string $version = null): array
+    {
+        // Always reset versioned properties — even when versioning is disabled —
+        // so that stale state from a previous call never bleeds into the next one.
+        $this->versionedRenames          = null;
+        $this->versionedFormatters       = null;
+        $this->versionedGuarded          = null;
+        $this->versionedDefaults         = null;
+        $this->versionedCustomAttributes = null;
+        $this->resolvedVersion           = null;
+
+        if (!config('devespressoApi.versioning.enabled')) {
+            return $this->formats;
+        }
+
+        $base = $this->baseFormat();
+        $allVersions = config('devespressoApi.versioning.versions', []);
+        $detectedVersion = $version ?? $this->detectVersion();
+        $chain = $this->resolveVersionChain($detectedVersion, $allVersions);
+
+        $this->resolvedVersion = !empty($chain) ? end($chain) : null;
+
+        return $this->applyVersionChain($base, $chain);
+    }
+
+    /**
+     * Returns the version that was resolved during the last getFormatting() call.
+     *
+     * When an unknown version is requested (e.g. 'v445') and the system falls
+     * back to the full chain, this returns the last known version ('v3'), not
+     * the raw requested value. Returns null when versioning is disabled or no
+     * version was detected.
+     */
+    public function getResolvedVersion(): ?string
+    {
+        return $this->resolvedVersion;
+    }
+
+    /**
+     * Detects the active API version from the current request.
+     *
+     * The detection strategy is controlled by devespressoApi.versioning.driver:
+     *  - 'route_prefix' — matches the start of the route URI against the known
+     *    versions list (e.g. a route at 'v2/posts' resolves to 'v2').
+     *  - 'header'       — reads the value of the configured header name
+     *    (devespressoApi.versioning.header, default 'X-Api-Version').
+     *
+     * Returns null when no version can be detected, which causes getFormatting()
+     * to fall back to the base format.
+     */
+    protected function detectVersion(): ?string
+    {
+        $driver = config('devespressoApi.versioning.driver', 'route_prefix');
+
+        return match ($driver) {
+            'header'       => request()->header(config('devespressoApi.versioning.header', 'X-Api-Version')) ?: null,
+            'route_prefix' => $this->detectVersionFromRoutePrefix(),
+            default        => throw new \InvalidArgumentException(
+                "Unknown versioning driver [{$driver}]. Supported: 'route_prefix', 'header'."
+            ),
+        };
+    }
+
+    /**
+     * Attempts to match the current route URI prefix against the known versions.
+     *
+     * Iterates the versions list and returns the first one whose string appears
+     * at the start of the route URI (e.g. 'v2' matches 'v2/posts/{id}').
+     * Returns null if no match is found or no route is active.
+     */
+    protected function detectVersionFromRoutePrefix(): ?string
+    {
+        $uri = request()->route()?->uri() ?? '';
+
+        if ($uri === '') {
+            return null;
+        }
+
+        foreach (config('devespressoApi.versioning.versions', []) as $version) {
+            if (Str::startsWith($uri, $version . '/') || $uri === $version) {
+                return $version;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolves the ordered list of version methods to apply for a given request.
+     *
+     * If the requested version is found in the list, the chain is sliced up to
+     * and including that version. If it is not found (unknown version), the full
+     * chain is returned — falling back to the latest known version. If no version
+     * is requested, an empty array is returned and only the base format is used.
+     *
+     * @param  string[]  $versions  Ordered list of all known versions from config.
+     * @return string[]             Ordered subset of versions to apply.
+     */
+    protected function resolveVersionChain(?string $requestedVersion, array $versions): array
+    {
+        if (empty($versions) || !$requestedVersion) {
+            return [];
+        }
+
+        $index = array_search($requestedVersion, $versions);
+
+        return $index !== false
+            ? array_slice($versions, 0, $index + 1)
+            : $versions; // Unknown version → fall back to full chain (latest)
+    }
+
+    /**
+     * Walks the version chain and applies each version's changes.
+     *
+     * For each version in the chain, calls the corresponding method (e.g.
+     * v2Format()). If the method does not exist:
+     *  - If $latestVersion is set and the version falls within its boundary,
+     *    a RuntimeException is thrown — the transformer declared support up
+     *    to that version but the method is missing.
+     *  - Otherwise the version is silently skipped.
+     *
+     * Each version method may return any combination of:
+     *  - 'merge' => false + 'formats' => [...] — standalone format, replaces all
+     *    accumulated formats. Other properties (renames, formatters, etc.) are
+     *    still merged cumulatively.
+     *  - 'append' / 'remove' — additive/subtractive changes to the format fields.
+     *  - 'renames', 'formatters', 'guarded', 'defaults', 'customAttributes' —
+     *    merged on top of the transformer's base properties using a deep merge.
+     *    Supports both global ('*') and dot-notation path-specific keys. Later
+     *    versions override earlier values for the same key.
+     *
+     * @param  string[]  $versions  Ordered list of versions to apply.
+     */
+    protected function applyVersionChain(array $formats, array $versions): array
+    {
+        $allVersions = config('devespressoApi.versioning.versions', []);
+
+        foreach ($versions as $version) {
+            $method = $version . 'Format';
+
+            if (!method_exists($this, $method)) {
+                if ($this->latestVersion !== null) {
+                    $versionIndex = array_search($version, $allVersions);
+                    $latestIndex  = array_search($this->latestVersion, $allVersions);
+
+                    if ($latestIndex !== false && $versionIndex !== false && $versionIndex <= $latestIndex) {
+                        throw new \RuntimeException(sprintf(
+                            'Transformer [%s] declares $latestVersion = \'%s\' but [%s()] is missing. Add the method or update $latestVersion.',
+                            static::class,
+                            $this->latestVersion,
+                            $method
+                        ));
+                    }
+                }
+
+                continue;
+            }
+
+            $versionFormat = $this->$method();
+
+            // Fix #3 — validate keys so typos ('appned', 'rename') fail loudly.
+            $validKeys   = ['merge', 'formats', 'append', 'remove', 'renames', 'formatters', 'guarded', 'defaults', 'customAttributes'];
+            $invalidKeys = array_diff(array_keys($versionFormat), $validKeys);
+            if (!empty($invalidKeys)) {
+                throw new \InvalidArgumentException(sprintf(
+                    '[%s::%s()] contains unknown keys: [%s]. Valid keys are: [%s].',
+                    static::class, $method,
+                    implode(', ', $invalidKeys),
+                    implode(', ', $validKeys)
+                ));
+            }
+
+            if (isset($versionFormat['merge']) && $versionFormat['merge'] === false && !array_key_exists('formats', $versionFormat)) {
+                throw new \InvalidArgumentException(sprintf(
+                    '[%s::%s()] sets merge: false but is missing the required \'formats\' key.',
+                    static::class, $method
+                ));
+            }
+
+            // Note: merge: false only resets the accumulated *formats* for this version.
+            // Property overrides (renames, formatters, guarded, defaults, customAttributes)
+            // always merge cumulatively — they are not affected by merge: false.
+            if (isset($versionFormat['merge']) && $versionFormat['merge'] === false) {
+                $formats = $versionFormat['formats'];
+            } else {
+                if (!empty($versionFormat['append'])) {
+                    $formats = $this->applyVersionAppends($formats, $versionFormat['append']);
+                }
+
+                if (!empty($versionFormat['remove'])) {
+                    $formats = $this->applyVersionRemoves($formats, $versionFormat['remove']);
+                }
+            }
+
+            // Fix #1 — write to separate versioned properties, never mutate the base ones.
+            foreach (['renames', 'formatters', 'guarded', 'defaults', 'customAttributes'] as $property) {
+                if (!empty($versionFormat[$property])) {
+                    $versionedProperty = 'versioned' . ucfirst($property);
+                    $this->$versionedProperty = $this->mergeVersionedProperties(
+                        $this->$versionedProperty ?? $this->$property,
+                        $versionFormat[$property]
+                    );
+                }
+            }
+        }
+
+        return $formats;
+    }
+
+    /**
+     * Recursively merges version property overrides into the base property.
+     *
+     * When both the base and override values for a key are arrays, the merge
+     * recurses — allowing nested keys (e.g. the '*' global bucket or deeper
+     * structures) to be extended rather than replaced wholesale.
+     *
+     * When the override value is a scalar (e.g. a rename target string or a
+     * method name), it replaces the existing value for that key. This correctly
+     * handles dot-notation path-specific keys such as 'user.name' or 'author.bio'
+     * whose values are plain strings.
+     *
+     * Examples:
+     *   base:     ['*' => ['created_at' => 'createdAt'], 'user.name' => 'fullName']
+     *   override: ['*' => ['status' => 'userStatus'],    'author.email' => 'authorEmail']
+     *   result:   ['*' => ['created_at' => 'createdAt', 'status' => 'userStatus'],
+     *              'user.name' => 'fullName', 'author.email' => 'authorEmail']
+     */
+    protected function mergeVersionedProperties(array $base, array $override): array
+    {
+        foreach ($override as $key => $value) {
+            if (isset($base[$key]) && is_array($base[$key]) && is_array($value)) {
+                $base[$key] = $this->mergeVersionedProperties($base[$key], $value);
+            } else {
+                $base[$key] = $value;
+            }
+        }
+
+        return $base;
+    }
+
+    /**
+     * Applies append operations to the formats array.
+     *
+     * Each key in $appends maps to a format key (e.g. '*', 'show'). The items
+     * under that key are merged into the matching format entry via appendItems().
+     */
+    protected function applyVersionAppends(array $formats, array $appends): array
+    {
+        foreach ($appends as $formatKey => $items) {
+            if (!array_key_exists($formatKey, $formats)) {
+                $formats[$formatKey] = [];
+            }
+            $formats[$formatKey] = $this->appendItems($formats[$formatKey], $items);
+        }
+
+        return $formats;
+    }
+
+    /**
+     * Recursively appends items into a format array.
+     *
+     * Scalar values are appended if not already present. Array values (keyed)
+     * are treated as nested relations — if the relation already exists the items
+     * are merged recursively; otherwise the whole relation is added as-is.
+     */
+    protected function appendItems(array $formatArray, array $items): array
+    {
+        foreach ($items as $key => $value) {
+            if (is_array($value)) {
+                if (array_key_exists($key, $formatArray)) {
+                    $formatArray[$key] = $this->appendItems($formatArray[$key], $value);
+                } else {
+                    $formatArray[$key] = $value;
+                }
+            } elseif (!in_array($value, $formatArray, true)) {
+                $formatArray[] = $value;
+            }
+        }
+
+        return $formatArray;
+    }
+
+    /**
+     * Applies remove operations to the formats array.
+     *
+     * Each key in $removes maps to a format key (e.g. '*', 'show'). The items
+     * under that key are removed from the matching format entry via removeItems().
+     */
+    protected function applyVersionRemoves(array $formats, array $removes): array
+    {
+        foreach ($removes as $formatKey => $items) {
+            if (!array_key_exists($formatKey, $formats)) {
+                continue;
+            }
+            $formats[$formatKey] = $this->removeItems($formats[$formatKey], $items);
+        }
+
+        return $formats;
+    }
+
+    /**
+     * Recursively removes items from a format array.
+     *
+     * Scalar values are removed by value, preserving all string-keyed entries
+     * (relations) so they are never accidentally dropped. Array values (keyed)
+     * are treated as nested relations — the remove is applied recursively.
+     */
+    protected function removeItems(array $formatArray, array $items): array
+    {
+        foreach ($items as $key => $value) {
+            if (is_array($value)) {
+                if (array_key_exists($key, $formatArray)) {
+                    $formatArray[$key] = $this->removeItems($formatArray[$key], $value);
+                }
+            } else {
+                $result = [];
+                foreach ($formatArray as $k => $v) {
+                    if (is_string($k)) {
+                        $result[$k] = $v; // always keep relations
+                    } elseif ($v !== $value) {
+                        $result[] = $v;
+                    }
+                }
+                $formatArray = $result;
+            }
+        }
+
+        return $formatArray;
     }
 
     /**
@@ -288,22 +686,24 @@ abstract class BaseTransformer
      */
     protected function renameKey(string $attribute, array $currentKey = []): string
     {
+        $renames = $this->versionedRenames ?? $this->renames;
+
         // If theres nothing to rename we just return the current key
-        if (!count($this->renames)) {
+        if (!count($renames)) {
             return $attribute;
         }
 
         // We check if we have any global keys that we need to rename
-        if (array_key_exists('*', $this->renames) && array_key_exists($attribute, $this->renames['*'])) {
-            return $this->renames['*'][$attribute];
+        if (array_key_exists('*', $renames) && array_key_exists($attribute, $renames['*'])) {
+            return $renames['*'][$attribute];
         }
 
         $currentKey[] = $attribute;
 
         $uniqueKey = implode('.', $currentKey);
 
-        if (array_key_exists($uniqueKey, $this->renames)) {
-            return $this->renames[$uniqueKey];
+        if (array_key_exists($uniqueKey, $renames)) {
+            return $renames[$uniqueKey];
         }
 
         return $attribute;
@@ -333,13 +733,15 @@ abstract class BaseTransformer
      */
     protected function findFormatters(string $attribute, $value, array $currentKey = [])
     {
+        $formatters = $this->versionedFormatters ?? $this->formatters;
+
         // If there are nothing in the formatters we just return the value
-        if (!count($this->formatters)) {
+        if (!count($formatters)) {
             return $value;
         }
         // We check global formatters if we have them we run the formatters
-        if (array_key_exists('*', $this->formatters) && array_key_exists($attribute, $this->formatters['*'])) {
-            $globalFormatters = $this->formatters['*'][$attribute];
+        if (array_key_exists('*', $formatters) && array_key_exists($attribute, $formatters['*'])) {
+            $globalFormatters = $formatters['*'][$attribute];
             $value = $this->runFormatters($value, $globalFormatters);
         }
 
@@ -347,13 +749,11 @@ abstract class BaseTransformer
 
         $uniqueKey = implode('.', $currentKey);
 
-        if (!array_key_exists($uniqueKey, $this->formatters)) {
+        if (!array_key_exists($uniqueKey, $formatters)) {
             return $value;
         }
 
-        $formatters = $this->formatters[$uniqueKey];
-
-        return $this->runFormatters($value, $formatters);
+        return $this->runFormatters($value, $formatters[$uniqueKey]);
     }
 
     /**
@@ -416,8 +816,10 @@ abstract class BaseTransformer
      */
     protected function checkForCustomAttributeAndGetValue(string $attribute, $model, bool $isCustomAttribute)
     {
-        if ($isCustomAttribute && array_key_exists($attribute, $this->customAttributes)) {
-            return $this->{$this->customAttributes[$attribute]}($model);
+        $customAttributes = $this->versionedCustomAttributes ?? $this->customAttributes;
+
+        if ($isCustomAttribute && array_key_exists($attribute, $customAttributes)) {
+            return $this->{$customAttributes[$attribute]}($model);
         }
 
         return $model->$attribute;
@@ -457,12 +859,14 @@ abstract class BaseTransformer
             return $value;
         }
 
+        $defaults = $this->versionedDefaults ?? $this->defaults;
+
         // We check global defaults if we have it, set the value
         if (
-            array_key_exists('*', $this->defaults) &&
-            array_key_exists($attribute, $this->defaults['*'])
+            array_key_exists('*', $defaults) &&
+            array_key_exists($attribute, $defaults['*'])
         ) {
-            $newValue = $this->defaults['*'][$attribute];
+            $newValue = $defaults['*'][$attribute];
             if (is_string($newValue) && method_exists($this, $newValue)) {
                 return $this->$newValue($model);
             }
@@ -474,8 +878,8 @@ abstract class BaseTransformer
 
         $uniqueKey = implode('.', $currentKey);
 
-        if (array_key_exists($uniqueKey, $this->defaults)) {
-            $newValue = $this->defaults[$uniqueKey];
+        if (array_key_exists($uniqueKey, $defaults)) {
+            $newValue = $defaults[$uniqueKey];
             if (is_string($newValue) && method_exists($this, $newValue)) {
                 return $this->$newValue($model);
             }
@@ -510,12 +914,14 @@ abstract class BaseTransformer
      */
     protected function isAttributeGuarded(string $attribute, array $currentKey, $model): bool
     {
+        $guarded = $this->versionedGuarded ?? $this->guarded;
+
         if (
-            array_key_exists('*', $this->guarded) &&
-            array_key_exists($attribute, $this->guarded['*']) &&
-            method_exists($this, $this->guarded['*'][$attribute])
+            array_key_exists('*', $guarded) &&
+            array_key_exists($attribute, $guarded['*']) &&
+            method_exists($this, $guarded['*'][$attribute])
         ) {
-            return $this->{$this->guarded['*'][$attribute]}($model);
+            return $this->{$guarded['*'][$attribute]}($model);
         }
 
         $currentKey[] = $attribute;
@@ -523,10 +929,10 @@ abstract class BaseTransformer
         $uniqueKey = implode('.', $currentKey);
 
         if (
-            array_key_exists($uniqueKey, $this->guarded) &&
-            method_exists($this, $this->guarded[$uniqueKey])
+            array_key_exists($uniqueKey, $guarded) &&
+            method_exists($this, $guarded[$uniqueKey])
         ) {
-            return $this->{$this->guarded[$uniqueKey]}($model);
+            return $this->{$guarded[$uniqueKey]}($model);
         }
 
         return false;

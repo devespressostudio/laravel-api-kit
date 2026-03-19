@@ -35,6 +35,15 @@ class ApiController
     /** Set to false to disable auto-resolution of the transformer. */
     protected bool $autoResolveTransformer = true;
 
+    /**
+     * The API version resolved from the last setData() call.
+     *
+     * Populated automatically when versioning is enabled. Reflects the actual
+     * version applied (e.g. 'v3') even if a higher unknown version was requested.
+     * Null when versioning is disabled or no version was detected.
+     */
+    protected ?string $version = null;
+
     public function __construct()
     {
         if ($this->autoResolveRepository) {
@@ -105,6 +114,8 @@ class ApiController
         $transformer = $this->resolveTransformer();
 
         $this->data[$wrapper ?? $transformer->wrapper] = $transformer->transformData($data, $format);
+
+        $this->version = $transformer->getResolvedVersion();
 
         if ($data instanceof LengthAwarePaginator) {
             $this->pagination['pagination'] = $this->getPagination($data);

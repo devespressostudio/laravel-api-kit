@@ -54,4 +54,14 @@ class FakeApiController extends ApiController
     {
         return $this->setCode($code, $message)->respond();
     }
+
+    public function callSetData(mixed $data, ?string $wrapper = null, ?string $format = null): self
+    {
+        return $this->setData($data, $wrapper, $format);
+    }
+
+    public function getVersion(): ?string
+    {
+        return $this->version;
+    }
 }

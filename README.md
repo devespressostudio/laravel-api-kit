@@ -523,6 +523,227 @@ class PostTransformer extends BaseTransformer
 | `show`, `index`, etc. | Merged on top of `*` for that controller method |
 | `_index` | Returned standalone — does **not** merge with `*` |
 
+#### API Versioning
+
+When your API evolves across versions, the transformer's versioning system lets you describe what changes at each version — without creating separate transformer files.
+
+**Enable versioning in the config:**
+
+```php
+'versioning' => [
+    'enabled'  => true,
+    'driver'   => 'route_prefix',  // 'route_prefix' | 'header'
+    'header'   => 'X-Api-Version', // used when driver = 'header'
+    'versions' => ['v2', 'v3'],    // ordered — v3 builds on v2
+],
+```
+
+**Define your base format and version methods on the transformer:**
+
+```php
+class PostTransformer extends BaseTransformer
+{
+    // Declare the highest version this transformer explicitly supports.
+    // Any version within this boundary that has no method will throw.
+    // Leave null to silently skip missing version methods.
+    protected ?string $latestVersion = 'v3';
+
+    // The starting point — used by all versions.
+    // Use this method instead of $formats when versioning is enabled.
+    protected function baseFormat(): array
+    {
+        return [
+            '*'    => ['id', 'title', 'status'],
+            'show' => ['email', 'created_at'],
+        ];
+    }
+
+    // v2 builds on base
+    protected function v2Format(): array
+    {
+        return [
+            'append' => [
+                '*'    => ['avatar'],
+                'show' => ['phone'],
+            ],
+            'remove' => [
+                '*' => ['status'],  // removed in v2
+            ],
+        ];
+    }
+
+    // v3 builds on v2
+    protected function v3Format(): array
+    {
+        return [
+            'append' => [
+                '*' => ['verified_at'],
+            ],
+        ];
+    }
+}
+```
+
+**Resolution chain:**
+
+| Request version | Formats applied |
+|---|---|
+| unversioned / none | `baseFormat()` only |
+| `v2` | `baseFormat()` → `v2Format()` |
+| `v3` | `baseFormat()` → `v2Format()` → `v3Format()` |
+| `v445` (unknown) | `baseFormat()` → `v2Format()` → `v3Format()` (falls back to latest) |
+
+**Nested relations** — append and remove work at any depth, mirroring the existing format shape:
+
+```php
+protected function v2Format(): array
+{
+    return [
+        'append' => [
+            '*' => [
+                'author' => ['bio'],        // adds bio inside the author relation
+            ],
+        ],
+        'remove' => [
+            '*' => [
+                'author' => ['email'],      // removes email from inside author
+            ],
+        ],
+    ];
+}
+```
+
+**Standalone versions** — use `merge: false` to replace all accumulated formats and start fresh from that version:
+
+```php
+protected function v2Format(): array
+{
+    return [
+        'merge'   => false,
+        'formats' => [
+            '*'    => ['id', 'avatar'],   // completely replaces base
+            'show' => ['phone'],
+        ],
+    ];
+}
+```
+
+Subsequent versions still build on top of the standalone result. Note that `merge: false` only resets the accumulated **formats** — property overrides (`renames`, `formatters`, `guarded`, `defaults`, `customAttributes`) always accumulate cumulatively regardless.
+
+#### Versioned property overrides
+
+Version methods can also override `renames`, `formatters`, `guarded`, `defaults`, and `customAttributes` — the same properties you set on the transformer class. The rule is simple:
+
+- **Class properties** (`$renames`, `$formatters`, etc.) are the **base** — always applied regardless of version.
+- **Version method keys** are **additive** — merged on top of the base for that call, never touching the class properties.
+
+```php
+class PostTransformer extends BaseTransformer
+{
+    // Always-on base renames
+    protected $renames = [
+        '*' => ['created_at' => 'createdAt'],
+    ];
+
+    // Always-on base formatters
+    protected $formatters = [
+        '*' => ['title' => 'ucwords'],
+    ];
+
+    protected function baseFormat(): array
+    {
+        return ['*' => ['id', 'title', 'status', 'created_at']];
+    }
+
+    protected function v2Format(): array
+    {
+        return [
+            'append'  => ['*' => ['name', 'avatar']],
+
+            // Layered on top of $renames — base rename is preserved
+            'renames' => [
+                '*'           => ['name' => 'fullName'],   // global rename
+                'author.name' => 'authorName',             // dot-notation path rename
+            ],
+
+            // Layered on top of $formatters
+            'formatters' => [
+                '*' => ['status' => 'toUpper'],
+            ],
+
+            // Layered on top of $guarded
+            'guarded' => [
+                '*' => ['salary' => 'isNotAdmin'],
+            ],
+
+            // Layered on top of $defaults
+            'defaults' => [
+                '*'          => ['avatar' => 'https://example.com/default.png'],
+                'author.bio' => 'getDefaultBio',
+            ],
+
+            // Layered on top of $customAttributes
+            'customAttributes' => [
+                'greeting' => 'getGreeting',
+            ],
+        ];
+    }
+
+    protected function v3Format(): array
+    {
+        return [
+            // Adds to v2's renames — all three renames are active for v3
+            'renames' => [
+                '*' => ['status' => 'userStatus'],
+            ],
+        ];
+    }
+}
+```
+
+**What the user gets per version:**
+
+| Version | Active renames |
+|---|---|
+| base | `created_at → createdAt` |
+| v2 | + `name → fullName`, `author.name → authorName` |
+| v3 | + `status → userStatus` |
+
+**The chain accumulates across versions** — v3's renames are merged on top of v2's, which are merged on top of the base. Later versions override earlier values for the same key.
+
+**Base properties are never mutated** — calling `resolveVersionedFormats()` on the same transformer instance with different versions is safe. Versioned state is isolated per call and reset at the start of each resolution.
+
+**Key validation** — version methods only accept the following keys. Any typo (e.g. `'appned'` instead of `'append'`) throws an `\InvalidArgumentException` immediately with a clear message listing both the bad key and the valid ones:
+
+```
+Valid keys: merge, formats, append, remove, renames, formatters, guarded, defaults, customAttributes
+```
+
+Also, `merge: false` requires a `formats` key — omitting it throws as well.
+
+**`$latestVersion` — opt-in strict mode:**
+
+```php
+protected ?string $latestVersion = 'v3';
+```
+
+When set, any version within this boundary that is missing its format method throws a `RuntimeException` with a descriptive message. Versions beyond `$latestVersion` are always skipped silently — not every transformer needs to change at every version.
+
+**Driver: `route_prefix`** — detects the version from the start of the route URI. A route registered at `v2/posts/{id}` resolves to `v2`. A route whose URI is exactly the version string (e.g. `v2` with no trailing path) also matches.
+
+**Driver: `header`** — reads the version from the configured request header:
+
+```php
+'driver' => 'header',
+'header' => 'X-Api-Version',  // GET /posts with X-Api-Version: v2
+```
+
+**Reading the resolved version** — after `setData()` is called on the controller, the resolved version is available on the controller via `$this->version`. On the transformer it is available via `getResolvedVersion()`. Both return `null` when versioning is disabled or no version was detected.
+
+When an unknown version is requested (e.g. `v445`) the system falls back to the full chain and both properties reflect the **last known version** (`v3`), not the raw requested value — so callers always see the effective version that was actually applied.
+
+---
+
 #### `$wrapper`
 
 The `$wrapper` property controls the key name used to wrap the transformed data in the response. If not set, it defaults to `'data'`:

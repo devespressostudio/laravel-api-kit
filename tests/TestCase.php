@@ -33,6 +33,10 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('devespressoApi.auto_select', false);
         $app['config']->set('devespressoApi.auto_eager_load', false);
         $app['config']->set('devespressoApi.pagination.with_pages', false);
+        $app['config']->set('devespressoApi.versioning.enabled', false);
+        $app['config']->set('devespressoApi.versioning.driver', 'route_prefix');
+        $app['config']->set('devespressoApi.versioning.header', 'X-Api-Version');
+        $app['config']->set('devespressoApi.versioning.versions', []);
     }
 
     protected function tearDown(): void

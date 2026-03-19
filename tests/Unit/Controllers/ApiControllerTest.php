@@ -2,7 +2,10 @@
 
 namespace Devespresso\LaravelApiKit\Tests\Unit\Controllers;
 
+use Devespresso\LaravelApiKit\Controllers\ApiController;
 use Devespresso\LaravelApiKit\Tests\Fixtures\Controllers\FakeApiController;
+use Devespresso\LaravelApiKit\Tests\Fixtures\Models\FakeUser;
+use Devespresso\LaravelApiKit\Tests\Fixtures\Transformers\FakeTransformer;
 use Devespresso\LaravelApiKit\Tests\TestCase;
 
 class ApiControllerTest extends TestCase
@@ -202,5 +205,63 @@ class ApiControllerTest extends TestCase
             'message' => 'Created',
             'data' => ['id' => 1, 'name' => 'John'],
         ], $data);
+    }
+
+    // -------------------------------------------------------------------------
+    // $version — populated from transformer after setData()
+    // -------------------------------------------------------------------------
+
+    public function test_version_is_set_on_controller_after_set_data(): void
+    {
+        $this->app['config']->set('devespressoApi.versioning.enabled', true);
+        $this->app['config']->set('devespressoApi.versioning.driver', 'header');
+        $this->app['config']->set('devespressoApi.versioning.versions', ['v2', 'v3']);
+        $this->app['request']->headers->set('X-Api-Version', 'v2');
+
+        $transformer = new class extends FakeTransformer {
+            public function v2Format(): array
+            {
+                return ['append' => ['*' => ['avatar']]];
+            }
+        };
+        $transformer->formats = ['*' => ['id', 'name']];
+
+        $controller = new class ($transformer) extends FakeApiController {
+            protected bool $autoResolveTransformer = true;
+
+            public function __construct(private FakeTransformer $fakeTransformer) {}
+
+            protected function resolveTransformer(): \Devespresso\LaravelApiKit\Transformers\BaseTransformer
+            {
+                return $this->fakeTransformer;
+            }
+        };
+
+        $model = (new FakeUser())->forceFill(['id' => 1, 'name' => 'Alice']);
+        $controller->callSetData($model);
+
+        $this->assertSame('v2', $controller->getVersion());
+    }
+
+    public function test_version_is_null_when_versioning_disabled(): void
+    {
+        $transformer = new FakeTransformer();
+        $transformer->formats = ['*' => ['id']];
+
+        $controller = new class ($transformer) extends FakeApiController {
+            protected bool $autoResolveTransformer = true;
+
+            public function __construct(private FakeTransformer $fakeTransformer) {}
+
+            protected function resolveTransformer(): \Devespresso\LaravelApiKit\Transformers\BaseTransformer
+            {
+                return $this->fakeTransformer;
+            }
+        };
+
+        $model = (new FakeUser())->forceFill(['id' => 1]);
+        $controller->callSetData($model);
+
+        $this->assertNull($controller->getVersion());
     }
 }
