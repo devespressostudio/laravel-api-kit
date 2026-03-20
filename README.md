@@ -5,7 +5,7 @@ A Laravel package that provides a complete data filtering, transformation, and A
 ## Requirements
 
 - PHP 8.1+
-- Laravel 10, 11, or 12
+- Laravel 10, 11, 12, or 13
 
 ## Installation
 
