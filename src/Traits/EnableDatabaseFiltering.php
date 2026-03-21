@@ -18,7 +18,8 @@ trait EnableDatabaseFiltering
         array $data,
         ?Authenticatable $user,
         $query = null,
-        array $extras = []
+        array $extras = [],
+        ?array $explicitFilters = null
     ) {
         $filterService = BaseFilterService::class;
 
@@ -26,13 +27,18 @@ trait EnableDatabaseFiltering
             $filterService = $this->defaultFilterService;
         }
 
-        return (new $filterService())
+        $service = (new $filterService())
             ->setModel($this)
             ->setQuery($query)
             ->setUser($user)
             ->setData($data)
-            ->setExtras($extras)
-            ->filter();
+            ->setExtras($extras);
+
+        if ($explicitFilters !== null) {
+            $service->setExplicitFilters($explicitFilters);
+        }
+
+        return $service->filter();
     }
 
     /**

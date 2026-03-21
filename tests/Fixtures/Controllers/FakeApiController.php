@@ -55,6 +55,11 @@ class FakeApiController extends ApiController
         return $this->setCode($code, $message)->respond();
     }
 
+    public function respondWithAppendTo(mixed $value, string $key = 'data'): self
+    {
+        return $this->appendTo($value, $key);
+    }
+
     public function callSetData(mixed $data, ?string $wrapper = null, ?string $format = null): self
     {
         return $this->setData($data, $wrapper, $format);

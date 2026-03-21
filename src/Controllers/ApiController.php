@@ -135,6 +135,25 @@ class ApiController
     }
 
     /**
+     * Appends a value to an existing data key.
+     *
+     * If the key does not exist yet it is created as a single-item array.
+     * If it already exists as an array the value is pushed onto it.
+     * Useful for accumulating multiple datasets under the same key across
+     * multiple calls before calling respond().
+     */
+    protected function appendTo(mixed $value, string $key = 'data'): self
+    {
+        if (!array_key_exists($key, $this->data)) {
+            $this->data[$key] = [$value];
+        } else {
+            $this->data[$key][] = $value;
+        }
+
+        return $this;
+    }
+
+    /**
      * Builds and returns the JSON response.
      *
      * @param  array  $response  Additional data to merge into the response payload.

@@ -175,12 +175,10 @@ $posts = Post::filter($request->validated(), $request->user());
 
 ```php
 Post::filter(
-    $request->validated(),  // request data — drives filter methods and sorting
-    $request->user(),       // authenticated user — controls admin-only filters
-    $query,                 // pre-scoped Builder — useful when you need to apply
-                            // base constraints before the filter service runs
-    $extras,                // arbitrary key/value context — accessible inside
-                            // filter methods via $this->getExtraProperty('key')
+    data:  $request->validated(),  // drives filter methods and sorting
+    user:  $request->user(),       // controls admin-only filters
+    query: $query,                 // pre-scoped Builder — base constraints before filters run
+    extras: $extras,               // arbitrary context — read via $this->getExtraProperty('key')
 );
 ```
 
@@ -190,7 +188,7 @@ Post::filter(
 // Only show posts belonging to the current team — enforced before filters run
 $query = Post::where('team_id', $team->id);
 
-$posts = Post::filter($request->validated(), $request->user(), $query);
+$posts = Post::filter($request->validated(), $request->user(), query: $query);
 ```
 
 **Passing context into filter methods (`$extras`):**
@@ -199,7 +197,6 @@ $posts = Post::filter($request->validated(), $request->user(), $query);
 $posts = Post::filter(
     $request->validated(),
     $request->user(),
-    query: null,
     extras: ['team' => $team]
 );
 
@@ -365,6 +362,41 @@ public function onlyPublished(bool $value): void
 ```
 
 Use this for constraints that must always be enforced — scoping to active records, filtering by tenant, etc.
+
+#### Explicit Filtering
+
+For an extra layer of security, you can restrict which request keys are allowed to drive filter methods on a per-call basis. This is controlled by two things:
+
+1. **Config flag** — enable it globally in `config/devespressoApi.php`:
+
+```php
+'enable_explicit_filtering' => true,
+```
+
+2. **Allowed list per request** — pass it through the model's `filter()` call:
+
+```php
+$posts = Post::filter(
+    $request->validated(),
+    $request->user(),
+    explicitFilters: ['status', 'author_id']
+);
+```
+
+When `enable_explicit_filtering` is `true`, the restriction **always applies** — there is no opt-out per call. Only keys in the allowed list are dispatched to filter methods; anything not listed is silently ignored, even if a matching public method exists. `sort` and `search` are always exempt.
+
+Not passing an allowed list is treated as an empty list — all request-driven filters are blocked. This means every endpoint that uses filtering must explicitly declare which keys it allows:
+
+```php
+// Inside a controller or repository — restrict to safe filters for this endpoint
+$posts = Post::filter(
+    $request->validated(),
+    $request->user(),
+    explicitFilters: ['status', 'category_id', 'published']
+);
+```
+
+> `$autoApply` methods are unaffected — they always run regardless of the explicit filter list.
 
 #### Pagination
 
@@ -891,7 +923,8 @@ class PostRepository extends BaseRepository
 Available methods:
 
 ```php
-$repo->index($data, $user);          // filtered, paginated list
+$repo->index($data, $user);                                          // filtered, paginated list
+$repo->index($data, $user, explicitFilters: ['status', 'name']);      // with explicit filter allowlist
 $repo->get($id);                     // single record
 $repo->create($attributes);          // create with hooks
 $repo->update($model, $attributes);  // update with hooks
@@ -965,6 +998,27 @@ return $this->setRawData(['total' => 100], 'stats')->respond();
 ```
 
 This is especially useful when `autoResolveTransformer` is disabled, or when the data doesn't come from a model.
+
+#### `appendTo()` — accumulate multiple values under a key
+
+Use `appendTo()` to push values onto a response key rather than replacing it. Each call appends to the array. Defaults to the `'data'` key:
+
+```php
+$this->appendTo(['id' => 1, 'name' => 'Alice']);
+$this->appendTo(['id' => 2, 'name' => 'Bob']);
+
+return $this->respond();
+// "data": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+```
+
+Use a custom key to keep different datasets separate:
+
+```php
+$this->appendTo($post, 'posts');
+$this->appendTo($stats, 'meta');
+
+return $this->respond();
+```
 
 #### `setMeta()` and `addMeta()` — response metadata
 

@@ -261,6 +261,131 @@ class FilterPipelineTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // Explicit filtering
+    // -------------------------------------------------------------------------
+
+    public function test_explicit_filter_allows_listed_key(): void
+    {
+        FakeUser::create(['name' => 'Alice', 'email' => 'alice@test.com']);
+        FakeUser::create(['name' => 'Bob', 'email' => 'bob@test.com']);
+
+        $this->app['config']->set('devespressoApi.enable_explicit_filtering', true);
+
+        $service = new class extends FakeFilterService {
+            public function name(string $value): void
+            {
+                $this->query->where('name', $value);
+            }
+        };
+
+        $result = $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['name' => 'Alice', 'pagination_type' => 'none'])
+            ->setExplicitFilters(['name'])
+            ->filter();
+
+        $this->assertCount(1, $result);
+        $this->assertSame('Alice', $result->first()->name);
+    }
+
+    public function test_explicit_filter_blocks_unlisted_key(): void
+    {
+        FakeUser::create(['name' => 'Alice', 'email' => 'alice@test.com']);
+        FakeUser::create(['name' => 'Bob', 'email' => 'bob@test.com']);
+
+        $this->app['config']->set('devespressoApi.enable_explicit_filtering', true);
+
+        $service = new class extends FakeFilterService {
+            public bool $statusWasCalled = false;
+
+            public function status(string $value): void
+            {
+                $this->statusWasCalled = true;
+                $this->query->where('status', $value);
+            }
+        };
+
+        $result = $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['status' => 'active', 'pagination_type' => 'none'])
+            ->setExplicitFilters(['name']) // 'status' not listed
+            ->filter();
+
+        $this->assertFalse($service->statusWasCalled);
+        $this->assertCount(2, $result); // both records returned — filter was not applied
+    }
+
+    public function test_explicit_filter_does_not_restrict_when_config_is_disabled(): void
+    {
+        FakeUser::create(['name' => 'Alice', 'email' => 'alice@test.com']);
+        FakeUser::create(['name' => 'Bob', 'email' => 'bob@test.com']);
+
+        // config is false (default) — explicit list has no effect
+        $this->app['config']->set('devespressoApi.enable_explicit_filtering', false);
+
+        $service = new class extends FakeFilterService {
+            public function name(string $value): void
+            {
+                $this->query->where('name', $value);
+            }
+        };
+
+        $result = $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['name' => 'Alice', 'pagination_type' => 'none'])
+            ->setExplicitFilters([]) // empty — would block all if config were on
+            ->filter();
+
+        $this->assertCount(1, $result); // filter still ran
+    }
+
+    public function test_sort_is_always_exempt_from_explicit_filter(): void
+    {
+        FakeUser::create(['name' => 'Alice', 'email' => 'alice@test.com']);
+        FakeUser::create(['name' => 'Bob', 'email' => 'bob@test.com']);
+
+        $this->app['config']->set('devespressoApi.enable_explicit_filtering', true);
+
+        $result = $this->makeService()
+            ->setData(['sort' => 'id,asc', 'pagination_type' => 'none'])
+            ->setExplicitFilters([]) // sort not listed — should still run
+            ->filter();
+
+        $this->assertSame('Alice', $result->first()->name); // Alice was inserted first (id=1)
+    }
+
+    public function test_explicit_filter_blocks_all_when_config_on_and_no_list_provided(): void
+    {
+        FakeUser::create(['name' => 'Alice', 'email' => 'alice@test.com']);
+        FakeUser::create(['name' => 'Bob', 'email' => 'bob@test.com']);
+
+        $this->app['config']->set('devespressoApi.enable_explicit_filtering', true);
+
+        $service = new class extends FakeFilterService {
+            public bool $nameWasCalled = false;
+
+            public function name(string $value): void
+            {
+                $this->nameWasCalled = true;
+                $this->query->where('name', $value);
+            }
+        };
+
+        // No setExplicitFilters() call — treated as empty list, all filters blocked
+        $result = $service
+            ->setModel(new FakeUser())
+            ->setUser(null)
+            ->setData(['name' => 'Alice', 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->nameWasCalled);
+        $this->assertCount(2, $result); // filter did not run, both records returned
+    }
+
+    // -------------------------------------------------------------------------
     // addSelectAndEagerLoad — accessor prefix
     // -------------------------------------------------------------------------
 

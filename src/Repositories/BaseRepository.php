@@ -48,9 +48,10 @@ abstract class BaseRepository
         array $data,
         ?Authenticatable $user = null,
         $query = null,
-        array $extras = []
+        array $extras = [],
+        ?array $explicitFilters = null
     ): mixed {
-        return $this->model->filter($data, $user, $query, $extras);
+        return $this->model->filter($data, $user, $query, $extras, $explicitFilters);
     }
 
     /**

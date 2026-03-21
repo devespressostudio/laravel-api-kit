@@ -190,6 +190,54 @@ class ApiControllerTest extends TestCase
         ], $data);
     }
 
+    public function test_append_to_data_creates_array_on_first_call(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithAppendTo(['id' => 1]);
+        $response = $controller->respondWithDefaults();
+
+        $data = $response->getData(true);
+
+        $this->assertSame([['id' => 1]], $data['data']);
+    }
+
+    public function test_append_to_data_pushes_onto_existing_array(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithAppendTo(['id' => 1]);
+        $controller->respondWithAppendTo(['id' => 2]);
+        $response = $controller->respondWithDefaults();
+
+        $data = $response->getData(true);
+
+        $this->assertSame([['id' => 1], ['id' => 2]], $data['data']);
+    }
+
+    public function test_append_to_data_supports_custom_key(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithAppendTo(['total' => 10], 'stats');
+        $controller->respondWithAppendTo(['total' => 20], 'stats');
+        $response = $controller->respondWithDefaults();
+
+        $data = $response->getData(true);
+
+        $this->assertSame([['total' => 10], ['total' => 20]], $data['stats']);
+    }
+
+    public function test_append_to_data_and_set_raw_data_coexist_on_different_keys(): void
+    {
+        $controller = new FakeApiController();
+        $controller->respondWithAppendTo(['id' => 1], 'items');
+        $controller->respondWithRawData(['total' => 1], 'meta');
+        $response = $controller->respondWithDefaults();
+
+        $data = $response->getData(true);
+
+        $this->assertSame([['id' => 1]], $data['items']);
+        $this->assertSame(['total' => 1], $data['meta']);
+    }
+
     public function test_respond_created_with_raw_data_returns_correct_structure(): void
     {
         $controller = new FakeApiController();

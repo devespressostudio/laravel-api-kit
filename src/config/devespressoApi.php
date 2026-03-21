@@ -15,6 +15,17 @@ return [
     ],
 
     /**
+     * When true, the filter service will only dispatch request data keys that are
+     * explicitly listed in the $explicitFilters param passed to filter(). Any key
+     * not in the list is silently ignored, regardless of whether a matching method
+     * exists on the service. sort and search are always exempt.
+     *
+     * Useful when you want to be explicit about what can be filtered per request,
+     * rather than relying solely on guarded/admin method lists.
+     */
+    'enable_explicit_filtering' => false,
+
+    /**
      * It will automatically use select statement based on the transformer
      */
     'auto_select' => true,

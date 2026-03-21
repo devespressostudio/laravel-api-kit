@@ -129,6 +129,18 @@ class BaseFilterService
     protected $autoApply = [];
 
     /**
+     * Explicit filter allowlist for this request.
+     *
+     * When enable_explicit_filtering is on, only keys listed here are dispatched
+     * from request data. sort and search are always exempt. Null (setExplicitFilters
+     * never called) is treated as an empty list — all request-driven filters are
+     * blocked. Callers must always pass the allowed list for filters to work.
+     *
+     * @var array|null
+     */
+    protected ?array $explicitFilters = null;
+
+    /**
      * Run conditions
      *
      * @var bool
@@ -258,6 +270,21 @@ class BaseFilterService
     }
 
     /**
+     * Sets the explicit filter allowlist for this request.
+     *
+     * When enable_explicit_filtering is on, only the keys listed here will be
+     * dispatched from the incoming request data. Any key not in the list is
+     * silently skipped regardless of whether a matching method exists.
+     * sort and search are always exempt and run regardless.
+     */
+    public function setExplicitFilters(array $filters): self
+    {
+        $this->explicitFilters = $filters;
+
+        return $this;
+    }
+
+    /**
      * Prevents setConditions() from running during the next filter() call.
      *
      * Useful in internal or admin contexts where the baseline query constraints
@@ -299,8 +326,16 @@ class BaseFilterService
             $this->setConditions();
         }
 
-        // Apply filters
-        $this->setFilters($this->data, [
+        // Apply filters — restrict to explicit allowlist when configured.
+        // When enable_explicit_filtering is on, only keys listed in $explicitFilters
+        // are dispatched. Not passing the list blocks all request-driven filters.
+        $data = $this->data;
+        if (config('devespressoApi.enable_explicit_filtering')) {
+            $allowed = array_flip(array_merge($this->explicitFilters ?? [], ['sort', 'search']));
+            $data = array_intersect_key($data, $allowed);
+        }
+
+        $this->setFilters($data, [
             ...$this->getBaseGuardedMethods(),
             ...$this->guardedMethods,
             ...$this->userIsAdmin() ? [] : $this->adminMethods,
