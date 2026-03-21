@@ -5,6 +5,8 @@ namespace Devespresso\LaravelApiKit\Tests\Unit\Services;
 use Devespresso\LaravelApiKit\Tests\Fixtures\Models\FakeAdminUser;
 use Devespresso\LaravelApiKit\Tests\Fixtures\Models\FakeUser;
 use Devespresso\LaravelApiKit\Tests\Fixtures\Services\FakeFilterService;
+use Devespresso\LaravelApiKit\Tests\Fixtures\Services\FakeNullRoleResolver;
+use Devespresso\LaravelApiKit\Tests\Fixtures\Services\FakeRoleResolver;
 use Devespresso\LaravelApiKit\Tests\TestCase;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
@@ -131,40 +133,18 @@ class FilterPipelineTest extends TestCase
         $this->assertFalse($service->nameWasCalled);
     }
 
-    public function test_admin_method_is_skipped_for_non_admin_user(): void
+    public function test_role_method_is_skipped_when_no_resolver_configured(): void
     {
         $service = new class extends FakeFilterService {
-            public bool $adminOnlyWasCalled = false;
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['admin' => ['adminOnly']];
 
             public function adminOnly(mixed $value): void
             {
-                $this->adminOnlyWasCalled = true;
+                $this->wasCalled = true;
             }
         };
-
-        $service->adminMethods = ['adminOnly'];
-
-        $service
-            ->setModel(new FakeUser())
-            ->setUser(null)
-            ->setData(['admin_only' => true, 'pagination_type' => 'none'])
-            ->filter();
-
-        $this->assertFalse($service->adminOnlyWasCalled);
-    }
-
-    public function test_admin_method_is_executed_for_admin_user(): void
-    {
-        $service = new class extends FakeFilterService {
-            public bool $adminOnlyWasCalled = false;
-
-            public function adminOnly(mixed $value): void
-            {
-                $this->adminOnlyWasCalled = true;
-            }
-        };
-
-        $service->adminMethods = ['adminOnly'];
 
         $service
             ->setModel(new FakeUser())
@@ -172,7 +152,207 @@ class FilterPipelineTest extends TestCase
             ->setData(['admin_only' => true, 'pagination_type' => 'none'])
             ->filter();
 
-        $this->assertTrue($service->adminOnlyWasCalled);
+        $this->assertFalse($service->wasCalled);
+    }
+
+    public function test_role_method_is_skipped_when_resolver_returns_null(): void
+    {
+        $this->app['config']->set('devespressoApi.roles', ['moderator', 'editor', 'admin']);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeNullRoleResolver::class);
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['admin' => ['adminOnly']];
+
+            public function adminOnly(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser(new FakeAdminUser())
+            ->setData(['admin_only' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->wasCalled);
+    }
+
+    public function test_role_method_is_skipped_for_user_without_matching_role(): void
+    {
+        $this->app['config']->set('devespressoApi.roles', ['moderator', 'editor', 'admin']);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $moderator       = new FakeAdminUser();
+        $moderator->role = 'moderator';
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['admin' => ['adminOnly']];
+
+            public function adminOnly(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser($moderator)
+            ->setData(['admin_only' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->wasCalled);
+    }
+
+    public function test_role_method_is_executed_for_user_with_matching_role(): void
+    {
+        $this->app['config']->set('devespressoApi.roles', ['moderator', 'editor', 'admin']);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['admin' => ['adminOnly']];
+
+            public function adminOnly(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser(new FakeAdminUser())
+            ->setData(['admin_only' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertTrue($service->wasCalled);
+    }
+
+    public function test_higher_role_inherits_lower_role_methods(): void
+    {
+        $this->app['config']->set('devespressoApi.roles', ['moderator', 'editor', 'admin']);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['moderator' => ['includeArchived']];
+
+            public function includeArchived(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        // admin is higher than moderator — should inherit moderator methods
+        $service
+            ->setModel(new FakeUser())
+            ->setUser(new FakeAdminUser())
+            ->setData(['include_archived' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertTrue($service->wasCalled);
+    }
+
+    public function test_lower_role_cannot_trigger_higher_role_methods(): void
+    {
+        $this->app['config']->set('devespressoApi.roles', ['moderator', 'editor', 'admin']);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $moderator       = new FakeAdminUser();
+        $moderator->role = 'moderator';
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = ['admin' => ['adminOnly']];
+
+            public function adminOnly(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser($moderator)
+            ->setData(['admin_only' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->wasCalled);
+    }
+
+    public function test_numeric_roles_higher_value_inherits_lower_methods(): void
+    {
+        $this->app['config']->set('devespressoApi.numeric_roles', true);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $user       = new FakeAdminUser();
+        $user->role = 3;
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = [
+                1 => ['levelOneMethod'],
+                2 => ['levelTwoMethod'],
+                3 => ['levelThreeMethod'],
+            ];
+
+            public function levelOneMethod(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+
+            public function levelTwoMethod(mixed $value): void {}
+            public function levelThreeMethod(mixed $value): void {}
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser($user)
+            ->setData(['level_one_method' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertTrue($service->wasCalled);
+    }
+
+    public function test_numeric_roles_lower_value_cannot_trigger_higher_methods(): void
+    {
+        $this->app['config']->set('devespressoApi.numeric_roles', true);
+        $this->app['config']->set('devespressoApi.role_resolver', FakeRoleResolver::class);
+
+        $user       = new FakeAdminUser();
+        $user->role = 1;
+
+        $service = new class extends FakeFilterService {
+            public bool $wasCalled = false;
+
+            public $roleMethods = [
+                1 => ['levelOneMethod'],
+                3 => ['levelThreeMethod'],
+            ];
+
+            public function levelOneMethod(mixed $value): void {}
+
+            public function levelThreeMethod(mixed $value): void
+            {
+                $this->wasCalled = true;
+            }
+        };
+
+        $service
+            ->setModel(new FakeUser())
+            ->setUser($user)
+            ->setData(['level_three_method' => true, 'pagination_type' => 'none'])
+            ->filter();
+
+        $this->assertFalse($service->wasCalled);
     }
 
     // -------------------------------------------------------------------------

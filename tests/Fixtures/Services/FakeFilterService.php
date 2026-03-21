@@ -23,7 +23,7 @@ class FakeFilterService extends BaseFilterService
     public $rawSort = [];
     public $defaultSortingColumn = ['id,desc'];
     public $guardedMethods = [];
-    public $adminMethods = [];
+    public $roleMethods = [];
     public $autoApply = [];
 
     protected bool $conditionsCalled = false;

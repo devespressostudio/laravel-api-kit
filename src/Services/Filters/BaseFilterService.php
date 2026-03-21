@@ -115,11 +115,24 @@ class BaseFilterService
     protected $guardedMethods = [];
 
     /**
-     * Methods that admin users can trigger
+     * Role-based method restrictions.
      *
-     * @var array
+     * Maps role names to the methods that require that role. A method listed under
+     * a role is only dispatched when getEffectiveRoles() returns that role for the current
+     * user. A method listed under multiple roles is accessible if the user has any
+     * of them.
+     *
+     * Example:
+     *   protected $roleMethods = [
+     *       'admin'  => ['includeTrashed', 'byTeam'],
+     *       'editor' => ['includeUnpublished'],
+     *   ];
+     *
+     * Override getEffectiveRoles() on your subclass to return the current user's roles.
+     *
+     * @var array<string, array<string>>
      */
-    protected $adminMethods = [];
+    protected $roleMethods = [];
 
     /**
      * Methods that are going to be applied
@@ -150,7 +163,7 @@ class BaseFilterService
     /**
      * Sets the authenticated user for this filter session.
      *
-     * The user is used to determine access to admin-only filter methods.
+     * The user is made available to getEffectiveRoles() and filter methods via $this->user.
      * Pass null to represent an unauthenticated (guest) context.
      */
     public function setUser(?Authenticatable $user): self
@@ -305,7 +318,7 @@ class BaseFilterService
      *  3. Applies any explicit $select overrides.
      *  4. Runs setConditions() unless conditions have been disabled.
      *  5. Dispatches each key in $data to its matching filter method, skipping
-     *     guarded, admin-only (for non-admin users), and base-class methods.
+     *     guarded, role-restricted (for users without the required role), and base-class methods.
      *  6. Applies the default sort if no 'sort' key was present in $data.
      *  7. Dispatches $autoApply filters (always applied, no guarding).
      *  8. Paginates the results using the method determined by 'pagination_type'.
@@ -338,7 +351,7 @@ class BaseFilterService
         $this->setFilters($data, [
             ...$this->getBaseGuardedMethods(),
             ...$this->guardedMethods,
-            ...$this->userIsAdmin() ? [] : $this->adminMethods,
+            ...$this->getMethodsBlockedByRole(),
             ...array_values($this->rawSort),
         ]);
 
@@ -635,13 +648,6 @@ class BaseFilterService
     }
 
     /**
-     * Returns true if the current user has admin privileges.
-     *
-     * Checks for an isAdmin() method on the user object and calls it. If the method
-     * does not exist (e.g. a guest or a non-admin user model), returns false safely.
-     * This controls whether methods listed in $adminMethods are accessible.
-     */
-    /**
      * Returns true if the given method exists on this instance and is public.
      *
      * Protected and private methods are intentionally excluded — only public
@@ -654,9 +660,83 @@ class BaseFilterService
             && (new ReflectionMethod($this, $method))->isPublic();
     }
 
-    private function userIsAdmin(): bool
+    /**
+     * Returns the effective roles for the current user, expanded by the hierarchy.
+     *
+     * Reads the user's role via the devespressoApi.role_resolver invokable class,
+     * then expands it to include all roles at or below that position in the
+     * devespressoApi.roles hierarchy (ordered lowest to highest).
+     *
+     * Example: roles = ['moderator', 'editor', 'admin'], user role = 'editor'
+     * → returns ['moderator', 'editor'] — editor inherits moderator methods.
+     *
+     * Override this in your subclass if you need custom role resolution logic.
+     *
+     * @return array<string>
+     */
+    protected function getEffectiveRoles(): array
     {
-        return $this->user !== null && method_exists($this->user, 'isAdmin') && (bool) call_user_func([$this->user, 'isAdmin']);
+        $resolverClass = config('devespressoApi.role_resolver');
+
+        if (!$resolverClass) {
+            return [];
+        }
+
+        $userRole = app($resolverClass)($this->user);
+
+        if (!$userRole) {
+            return [];
+        }
+
+        // Numeric roles — hierarchy derived from $roleMethods keys, no list needed.
+        // All keys ≤ the user's role are included.
+        if (config('devespressoApi.numeric_roles')) {
+            $numericKeys = array_filter(array_keys($this->roleMethods), 'is_numeric');
+            sort($numericKeys, SORT_NUMERIC);
+
+            return array_values(array_filter($numericKeys, fn ($r) => (float) $r <= (float) $userRole));
+        }
+
+        $roles    = config('devespressoApi.roles', []);
+        $position = array_search($userRole, $roles);
+
+        if ($position === false) {
+            return [$userRole];
+        }
+
+        return array_slice($roles, 0, $position + 1);
+    }
+
+    /**
+     * Returns the list of methods that should be blocked for the current user
+     * based on $roleMethods. A method is blocked if every role that grants access
+     * to it is absent from the user's roles.
+     */
+    private function getMethodsBlockedByRole(): array
+    {
+        if (empty($this->roleMethods)) {
+            return [];
+        }
+
+        $userRoles = $this->getEffectiveRoles();
+
+        // Build a map of method => roles that grant access to it
+        $methodRoles = [];
+        foreach ($this->roleMethods as $role => $methods) {
+            foreach ($methods as $method) {
+                $methodRoles[$method][] = $role;
+            }
+        }
+
+        // Block a method only if the user has none of the roles that grant it
+        $blocked = [];
+        foreach ($methodRoles as $method => $roles) {
+            if (empty(array_intersect($roles, $userRoles))) {
+                $blocked[] = $method;
+            }
+        }
+
+        return $blocked;
     }
 
     /**

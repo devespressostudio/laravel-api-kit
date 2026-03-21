@@ -5,16 +5,11 @@ namespace Devespresso\LaravelApiKit\Tests\Fixtures\Models;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
- * A concrete admin user stub for testing adminMethods dispatch.
- * method_exists() must return true for isAdmin() — Mockery stubs won't work
- * here because isAdmin() is not declared on the Authenticatable interface.
+ * A concrete user stub with a configurable role for testing roleMethods dispatch.
  */
 class FakeAdminUser implements Authenticatable
 {
-    public function isAdmin(): bool
-    {
-        return true;
-    }
+    public string $role = 'admin';
 
     public function getAuthIdentifierName(): string { return 'id'; }
     public function getAuthIdentifier(): mixed { return 1; }

@@ -122,6 +122,39 @@ Set to `false` to manage eager loading manually in your filter service or contro
 
 ---
 
+### `enable_explicit_filtering`
+
+When `true`, the filter service only dispatches request keys that are explicitly listed via the `explicitFilters` parameter. Keys not in the list are silently ignored. `sort` and `search` are always exempt. `$autoApply` is unaffected.
+
+```php
+'enable_explicit_filtering' => false,
+```
+
+See [Explicit Filtering](#explicit-filtering) for usage.
+
+---
+
+### `roles`, `numeric_roles`, `role_resolver`
+
+Controls role-based method restrictions in the filter service.
+
+```php
+// Invokable class that returns the current user's role (string or int, or null)
+'role_resolver' => App\Support\RoleResolver::class,
+
+// String roles — ordered lowest to highest
+'roles' => ['moderator', 'editor', 'admin'],
+
+// OR — numeric roles, no list needed
+'numeric_roles' => false,
+```
+
+> `role_resolver` must be an invokable class — closures cannot be used because the config file must be cacheable (`php artisan config:cache`).
+
+See [`$roleMethods`](#4-rolemethods--restrict-methods-to-specific-roles) for usage.
+
+---
+
 ### `transformers.prefixes`
 
 Single-character prefixes used in transformer `$formats` arrays to control how attributes are treated. All three are fully configurable — if any clash with your attribute names, change them here and the entire package will use your values automatically.
@@ -176,7 +209,7 @@ $posts = Post::filter($request->validated(), $request->user());
 ```php
 Post::filter(
     data:  $request->validated(),  // drives filter methods and sorting
-    user:  $request->user(),       // controls admin-only filters
+    user:  $request->user(),       // available via $this->user and getEffectiveRoles()
     query: $query,                 // pre-scoped Builder — base constraints before filters run
     extras: $extras,               // arbitrary context — read via $this->getExtraProperty('key')
 );
@@ -222,7 +255,7 @@ public function setConditions(): void
 public function status(string $value): void
 {
     // Only admins can filter by draft status
-    if ($value === 'draft' && !$this->user?->isAdmin()) {
+    if ($value === 'draft' && !in_array('admin', $this->getEffectiveRoles())) {
         return;
     }
 
@@ -253,8 +286,8 @@ class PostFilterService extends BaseFilterService
     // Methods that cannot be triggered by request data
     protected $guardedMethods = ['sensitiveMethod'];
 
-    // Methods only accessible to admin users (requires isAdmin() on user model)
-    protected $adminMethods = ['includeTrashed'];
+    // Methods restricted by role
+    protected $roleMethods = ['admin' => ['includeTrashed']];
 
     // Methods always applied, regardless of request data
     protected $autoApply = ['onlyPublished' => true];
@@ -283,7 +316,7 @@ class PostFilterService extends BaseFilterService
         $this->query->where('published', true);
     }
 
-    // Only callable by admin users
+    // Only callable by users with the 'admin' role
     public function includeTrashed(bool $value): void
     {
         if ($value) {
@@ -338,15 +371,113 @@ protected $guardedMethods = ['internalScope', 'sensitiveMethod'];
 
 Any method listed here will be silently skipped even if a matching key is present in the request.
 
-**4. `$adminMethods` — restrict methods to admin users only**
+**4. `$roleMethods` — restrict methods to specific roles**
 
-Methods listed here are only dispatched if the authenticated user has an `isAdmin()` method that returns `true`. For all other users the method is silently skipped:
+Maps role names to the methods that require them. A method is only dispatched if the current user holds that role — or a higher one:
 
 ```php
-protected $adminMethods = ['includeTrashed', 'byTeam'];
+protected $roleMethods = [
+    'moderator' => ['includeArchived'],
+    'editor'    => ['includeUnpublished'],
+    'admin'     => ['includeTrashed', 'byAnyTeam'],
+];
 ```
 
-> **Rule of thumb:** keep internal helpers `protected`. If a public method should not be triggerable from a request key, add it to `$guardedMethods`. If it should only be available to admins, add it to `$adminMethods`.
+Roles are hierarchical — a higher role automatically inherits access to all methods available to lower roles. Declare the hierarchy and a resolver in `config/devespressoApi.php`:
+
+```php
+'roles'         => ['moderator', 'editor', 'admin'], // ordered lowest to highest
+'role_resolver' => App\Support\RoleResolver::class,
+```
+
+The resolver must be an **invokable class** — closures are not supported because the config file must be cacheable:
+
+```php
+// app/Support/RoleResolver.php
+class RoleResolver
+{
+    public function __invoke(?Authenticatable $user): mixed
+    {
+        return $user?->role; // e.g. 'admin', 'editor', 'moderator', or null
+    }
+}
+```
+
+An `admin` user can trigger methods listed under `admin`, `editor`, and `moderator`. An `editor` can trigger `editor` and `moderator` methods, but not `admin`.
+
+**Full example:**
+
+```php
+// app/Services/Filters/PostFilterService.php
+class PostFilterService extends BaseFilterService
+{
+    protected $roleMethods = [
+        'moderator' => ['includeArchived'],
+        'editor'    => ['includeUnpublished'],
+        'admin'     => ['includeTrashed', 'byAnyTeam'],
+    ];
+
+    // Accessible to moderators and above
+    public function includeArchived(bool $value): void
+    {
+        $this->query->withoutGlobalScope('active');
+    }
+
+    // Accessible to editors and above
+    public function includeUnpublished(bool $value): void
+    {
+        $this->query->where('published', false);
+    }
+
+    // Admin only
+    public function includeTrashed(bool $value): void
+    {
+        $this->query->withTrashed();
+    }
+
+    public function byAnyTeam(int $teamId): void
+    {
+        $this->query->where('team_id', $teamId);
+    }
+}
+```
+
+Calling from a controller requires no extra work — role checking happens automatically:
+
+```php
+$posts = Post::filter($request->validated(), $request->user());
+```
+
+**Numeric roles** — if your roles are numeric (e.g. `1`, `2`, `3` or `10`, `20`, `30`), set `numeric_roles` to `true` and skip the `roles` list entirely. The hierarchy is derived automatically from the keys in `$roleMethods`:
+
+```php
+'role_resolver' => App\Support\RoleResolver::class,
+'numeric_roles' => true,
+```
+
+```php
+protected $roleMethods = [
+    1 => ['includeArchived'],
+    2 => ['includeUnpublished'],
+    3 => ['includeTrashed', 'byAnyTeam'],
+];
+```
+
+A user with role `3` can trigger methods at levels `1`, `2`, and `3`. A user with role `1` can only trigger level `1` methods.
+
+That's all the setup needed — no overrides required on individual filter services.
+
+If you need custom resolution logic for a specific service, override `getEffectiveRoles()`:
+
+```php
+protected function getEffectiveRoles(): array
+{
+    // custom logic — return the expanded set of roles yourself
+    return $this->user?->getAllGrantedRoles() ?? [];
+}
+```
+
+> **Rule of thumb:** keep internal helpers `protected`. If a public method should not be triggerable from a request key, add it to `$guardedMethods`. If it should only be available to specific roles, add it to `$roleMethods`.
 
 #### Auto-Apply
 

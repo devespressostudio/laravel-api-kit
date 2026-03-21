@@ -34,6 +34,9 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('devespressoApi.auto_eager_load', false);
         $app['config']->set('devespressoApi.pagination.with_pages', false);
         $app['config']->set('devespressoApi.enable_explicit_filtering', false);
+        $app['config']->set('devespressoApi.roles', []);
+        $app['config']->set('devespressoApi.numeric_roles', false);
+        $app['config']->set('devespressoApi.role_resolver', null);
         $app['config']->set('devespressoApi.versioning.enabled', false);
         $app['config']->set('devespressoApi.versioning.driver', 'route_prefix');
         $app['config']->set('devespressoApi.versioning.header', 'X-Api-Version');

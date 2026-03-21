@@ -21,9 +21,38 @@ return [
      * exists on the service. sort and search are always exempt.
      *
      * Useful when you want to be explicit about what can be filtered per request,
-     * rather than relying solely on guarded/admin method lists.
+     * rather than relying solely on guarded/role method lists.
      */
     'enable_explicit_filtering' => false,
+
+    /**
+     * Ordered list of roles from lowest to highest privilege.
+     * A user with a higher role automatically inherits access to all methods
+     * available to lower roles in $roleMethods on the filter service.
+     *
+     * Example: ['moderator', 'editor', 'admin']
+     * An 'admin' user can trigger methods listed under 'admin', 'editor', and 'moderator'.
+     *
+     * Not needed when numeric_roles is true.
+     */
+    'roles' => [],
+
+    /**
+     * Set to true when roles are numeric (e.g. 1, 2, 3 or 10, 20, 30).
+     * The hierarchy is derived automatically from the $roleMethods keys —
+     * a user with role 3 can trigger methods listed under 3, 2, and 1.
+     * No roles list is required when this is enabled.
+     */
+    'numeric_roles' => false,
+
+    /**
+     * Invokable class string that receives the authenticated user and returns their
+     * single role as a string or integer. Return null for unauthenticated or roleless users.
+     * Must be an invokable class — closures are not supported as config cannot be cached.
+     *
+     * Example: App\Support\RoleResolver::class
+     */
+    'role_resolver' => null,
 
     /**
      * It will automatically use select statement based on the transformer
