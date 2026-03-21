@@ -198,31 +198,34 @@ class ApiControllerTest extends TestCase
 
         $data = $response->getData(true);
 
-        $this->assertSame([['id' => 1]], $data['data']);
+        $this->assertSame(['id' => 1], $data['data']);
     }
 
-    public function test_append_to_data_pushes_onto_existing_array(): void
+    public function test_append_to_data_merges_on_subsequent_calls(): void
     {
         $controller = new FakeApiController();
-        $controller->respondWithAppendTo(['id' => 1]);
-        $controller->respondWithAppendTo(['id' => 2]);
+        $controller->respondWithAppendTo(['permissions' => ['update' => false, 'delete' => true]]);
+        $controller->respondWithAppendTo(['meta' => ['total' => 5]]);
         $response = $controller->respondWithDefaults();
 
         $data = $response->getData(true);
 
-        $this->assertSame([['id' => 1], ['id' => 2]], $data['data']);
+        $this->assertSame([
+            'permissions' => ['update' => false, 'delete' => true],
+            'meta'        => ['total' => 5],
+        ], $data['data']);
     }
 
     public function test_append_to_data_supports_custom_key(): void
     {
         $controller = new FakeApiController();
-        $controller->respondWithAppendTo(['total' => 10], 'stats');
-        $controller->respondWithAppendTo(['total' => 20], 'stats');
+        $controller->respondWithAppendTo(['count' => 10], 'stats');
+        $controller->respondWithAppendTo(['average' => 2.5], 'stats');
         $response = $controller->respondWithDefaults();
 
         $data = $response->getData(true);
 
-        $this->assertSame([['total' => 10], ['total' => 20]], $data['stats']);
+        $this->assertSame(['count' => 10, 'average' => 2.5], $data['stats']);
     }
 
     public function test_append_to_data_and_set_raw_data_coexist_on_different_keys(): void
@@ -234,7 +237,7 @@ class ApiControllerTest extends TestCase
 
         $data = $response->getData(true);
 
-        $this->assertSame([['id' => 1]], $data['items']);
+        $this->assertSame(['id' => 1], $data['items']);
         $this->assertSame(['total' => 1], $data['meta']);
     }
 
