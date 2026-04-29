@@ -765,6 +765,7 @@ class BaseFilterService
      *  - null     → uses paginate() or simplePaginate() based on the devespressoApi config default.
      *  - 'none'   → uses get() to return all results without pagination.
      *  - 'simple' → uses simplePaginate() (no total count query).
+     *  - 'cursor' → uses cursorPaginate() (cursor-based, no total count, requires stable ordering).
      *  - anything else (e.g. 'full') → uses paginate() (includes total count).
      */
     protected function getPaginationMethod(?string $paginationType = null): string
@@ -775,6 +776,10 @@ class BaseFilterService
 
         if ($paginationType === 'none') {
             return 'get';
+        }
+
+        if ($paginationType === 'cursor') {
+            return 'cursorPaginate';
         }
 
         return $paginationType !== 'simple' ? 'paginate' : 'simplePaginate';

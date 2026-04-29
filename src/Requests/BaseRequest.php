@@ -112,7 +112,7 @@ abstract class BaseRequest extends FormRequest
             'sort' => ['string'],
             'per_page' => ['integer', 'min:1', 'max:100'],
             'with_pages' => ['boolean'],
-            'pagination_type' => ['string', 'in:paginate,none,simple'],
+            'pagination_type' => ['string', 'in:paginate,none,simple,cursor'],
         ];
     }
 
