@@ -538,11 +538,32 @@ Control pagination via request data:
 | _(not set)_ | `simplePaginate()` or `paginate()` based on config |
 | `simple` | `simplePaginate()` — no total count query |
 | `paginate` | `paginate()` — includes total count |
+| `cursor` | `cursorPaginate()` — cursor-based, no total count |
 | `none` | `get()` — returns all results |
 
 ```
 GET /posts?pagination_type=none&per_page=50
+GET /posts?pagination_type=cursor&per_page=25&cursor=eyJpZCI6MTB9...
 ```
+
+**Cursor pagination and sorting**
+
+Cursor pagination works by encoding the last-seen row position into an opaque token. Laravel reads the `cursor` query parameter automatically — you do not need to handle it in your filter service.
+
+Because the cursor points to a specific row, **the sort order must be stable and unique across the full result set**. If two rows can produce the same sort key, Laravel cannot determine a reliable position and will skip or repeat rows between pages.
+
+Rules to follow:
+- Always include a unique column (typically `id`) as the final sort key. A sort like `created_at,desc` is not stable on its own — two posts can share the same `created_at` timestamp. Add `id` as a tiebreaker: `sort[]=created_at,desc&sort[]=id,desc`.
+- Never use `rawSort` with cursor pagination unless the raw expression is fully deterministic and unique per row.
+- Avoid sorts on nullable columns without a fallback — `NULL` values make the cursor position ambiguous.
+
+The `defaultSortingColumn` on `BaseFilterService` is `['id,desc']`, which is safe for cursor pagination out of the box. If you change it in your subclass, make sure to keep `id` as the final tiebreaker:
+
+```php
+protected $defaultSortingColumn = ['created_at,desc', 'id,desc'];
+```
+
+Laravel will throw a `RuntimeException` if it cannot encode a valid cursor from the current sort — which is a clear signal that the ordering is not stable enough.
 
 #### Sorting
 
@@ -1282,7 +1303,7 @@ Built-in rules available on all requests (from `indexRules()`):
 | `sort` | string |
 | `per_page` | integer, min:1, max:100 |
 | `with_pages` | boolean |
-| `pagination_type` | in:paginate,none,simple |
+| `pagination_type` | in:paginate,none,simple,cursor |
 
 ---
 
