@@ -4,6 +4,7 @@ namespace Devespresso\LaravelApiKit\Controllers;
 
 use Devespresso\LaravelApiKit\Repositories\BaseRepository;
 use Devespresso\LaravelApiKit\Transformers\BaseTransformer;
+use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
@@ -119,6 +120,8 @@ class ApiController
 
         if ($data instanceof LengthAwarePaginator) {
             $this->pagination['pagination'] = $this->getPagination($data);
+        } elseif ($data instanceof CursorPaginator) {
+            $this->pagination['pagination'] = $this->getCursorPagination($data);
         }
 
         return $this;
@@ -218,6 +221,21 @@ class ApiController
             'prev_page_url' => $data->previousPageUrl(),
             'to' => $data->lastItem(),
             'total' => $data->total(),
+        ];
+    }
+
+    /**
+     * Extracts pagination metadata from a cursor paginator instance.
+     */
+    protected function getCursorPagination(CursorPaginator $data): array
+    {
+        return [
+            'next_cursor' => $data->nextCursor()?->encode(),
+            'next_page_url' => $data->nextPageUrl(),
+            'per_page' => $data->perPage(),
+            'prev_cursor' => $data->previousCursor()?->encode(),
+            'prev_page_url' => $data->previousPageUrl(),
+            'has_more_pages' => $data->hasMorePages(),
         ];
     }
 
