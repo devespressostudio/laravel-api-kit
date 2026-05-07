@@ -2,6 +2,7 @@
 
 namespace Devespresso\LaravelApiKit\Transformers;
 
+use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -142,7 +143,7 @@ abstract class BaseTransformer
     /**
      * Entry point for transforming model data into a formatted array.
      *
-     * Pass the raw Eloquent result (a Model, Collection, or Paginator) and
+     * Pass the raw Eloquent result (a Model, Collection, Paginator, or CursorPaginator) and
      * optionally a format key to use. If no format is given, the format is
      * auto-detected from the current route action via getFormatting().
      *
@@ -560,7 +561,7 @@ abstract class BaseTransformer
      * Recursively formats a Model, Collection, or Paginator into a plain array.
      *
      * - If $collection is null, returns null.
-     * - If $collection is not a Model (i.e. a Collection or Paginator), each item
+     * - If $collection is not a Model (i.e. a Collection, Paginator, or CursorPaginator), each item
      *   is formatted individually by calling this method recursively, then the
      *   result is returned as a plain array.
      * - If $collection is a Model, each entry in $attributes is processed:
@@ -577,7 +578,7 @@ abstract class BaseTransformer
      *
      * @param  array  $attributes
      */
-    protected function formatModel(Collection|Model|Paginator|null $collection, $attributes, array $currentKey = []): ?array
+    protected function formatModel(Collection|Model|Paginator|CursorPaginator|null $collection, $attributes, array $currentKey = []): ?array
     {
         if (!$collection) {
             return null;
